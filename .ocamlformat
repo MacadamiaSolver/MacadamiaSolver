@@ -1,0 +1,5 @@
+profile = ocamlformat
+version = 0.26.2
+sequence-style = terminator
+match-indent = 2
+match-indent-nested = always
