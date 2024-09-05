@@ -1,0 +1,28 @@
+name: Build on linux
+
+on: [push, pull_request]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with: 
+          ocaml-compiler: 4.14
+
+      - name: Install depedencies
+        run: opam install . --deps-only --with-test
+
+      - name: Format
+        run: opam exec -- dune fmt
+
+      - name: Build
+        run: opam exec -- dune build @check @all
+
+      - name: Lint
+        run: opam exec -- zanuda -dir . | tee result; if [[ -z $(cat result) ]]; then exit 0; else exit 1; fi
+
+      - name: Tests
+        run: opam exec -- dune runtest
+
