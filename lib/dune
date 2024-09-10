@@ -1,2 +1,4 @@
 (library
- (name lib))
+ (name lib)
+ (modules Ast Parser)
+ (libraries base angstrom))
