@@ -1,4 +1,4 @@
 (library
  (name lib)
- (modules Ast Parser)
+ (modules Ast Parser Nfa Bits NfaCollection Utils)
  (libraries base angstrom))
