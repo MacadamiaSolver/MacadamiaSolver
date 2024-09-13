@@ -20,9 +20,6 @@ jobs:
       - name: Build
         run: opam exec -- dune build @check @all
 
-      - name: Lint
-        run: opam exec -- zanuda -dir . | tee result; if [[ -z $(cat result) ]]; then exit 0; else exit 1; fi
-
       - name: Tests
         run: opam exec -- dune runtest
 

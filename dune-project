@@ -20,7 +20,6 @@
    ocaml 
    dune 
    (alcotest :with-test)
-   zanuda
    (ocamlformat
     (and
      (= 0.26.2)
