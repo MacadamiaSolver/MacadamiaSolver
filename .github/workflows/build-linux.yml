@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ocaml/setup-ocaml@v3
         with: 
-          ocaml-compiler: 4.14
+          ocaml-compiler: 5
 
       - name: Install depedencies
         run: opam install . --deps-only --with-test
