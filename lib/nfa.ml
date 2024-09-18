@@ -23,6 +23,8 @@ let create_nfa ~(transitions : ('s * ('var, bit) Map.t * 's) list)
     ; final= Set.of_list final
     ; start= Set.of_list start }
 
+let vars nfa =
+
 let matches (mask : ('a, 'b) Map.t) (map : ('a, 'b) Map.t) : bool =
   Map.fold2 mask map ~init:true ~f:(fun ~key ~data acc ->
       let _ = key in

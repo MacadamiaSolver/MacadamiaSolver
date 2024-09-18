@@ -10,6 +10,8 @@ val create_nfa :
   -> final:'s list
   -> 'var nfa
 
+val vars : 'v nfa -> 'v list
+
 val run_nfa : 'v nfa -> ('v, bit) Map.t list -> bool
 
 val map_varname : ('a -> 'b) -> 'a nfa -> 'b nfa

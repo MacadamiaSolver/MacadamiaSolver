@@ -1,12 +1,12 @@
 type bit = I | O
 
 let to_bit_string n =
-  let rec helper acc n =
-    if n = 0 then acc
-    else if n mod 2 = 0 then helper (O :: acc) (n / 2)
-    else helper (I :: acc) (n / 2)
+  let rec helper acc n i =
+    if i = 63 then acc
+    else if n mod 2 = 0 then helper (O :: acc) (n / 2) (i + 1)
+    else helper (I :: acc) (n / 2) (i + 1)
   in
-  helper [] n |> List.rev
+  helper [] n 0 |> List.rev
 
 let is_empty = function _ :: _ -> false | [] -> true
 
