@@ -318,13 +318,7 @@ let make_deterministic (Nfa nfa) =
            |> List.map (fun (_, dsts) -> dsts |> Set.to_list)
            |> List.concat |> Set.of_list )
   in
-  let new_states =
-    new_nodes_in_transitions
-    |> Map.fold ~init:Set.empty ~f:(fun ~key:_ ~data acc ->
-           data
-           |> Set.fold ~init:acc ~f:(fun acc (_, state) -> Set.add acc state) )
-  in
-  let transitions =
+  let replaced_transitions =
     old_nodes_edge_replacements
     |> Map.fold ~init:nfa.transitions
          ~f:(fun ~key:repl_key ~data:repl_set repl_acc ->
@@ -339,10 +333,30 @@ let make_deterministic (Nfa nfa) =
                                if mask = repl_mask && state = repl_state then
                                  (repl, state)
                                else (mask, state) ) ) ) ) )
-    (*nfa.transitions |> Map.map ~f:(fun ) |> Map.to_alist
-      |> List.map (fun (key, value) -> (Set.singleton key, value))
-      |> Map.of_alist_exn
-      |> Map.map ~f:(Set.map ~f:(fun (mask, state) -> (mask, Set.singleton state)))*)
-    (*добавить new_nodes_in_transitions и добавить переходы из new_states*)
+    |> Map.to_alist
+    |> List.map (fun (key, value) -> (Set.singleton key, value))
+    |> Map.of_alist_exn
+    |> Map.map ~f:(Set.map ~f:(fun (mask, state) -> (mask, Set.singleton state)))
   in
-  create_dfa [] [] []
+  let new_states =
+    new_nodes_in_transitions
+    |> Map.fold ~init:Set.empty ~f:(fun ~key:_ ~data acc ->
+           data
+           |> Set.fold ~init:acc ~f:(fun acc (_, state) -> Set.add acc state) )
+  in
+  let new_nodes_out_transitions =
+    new_states |> Set.to_list
+    |> List.map (fun state ->
+           ( state
+           , replaced_transitions
+             |> Map.filter_keys ~f:(Set.is_subset ~of_:state)
+             |> Map.data |> List.map Set.to_list |> List.concat |> Set.of_list
+           ) )
+    |> Map.of_alist_exn
+    (*добавить new_nodes_in_transitions и добавить new_nodes_out_transitions*)
+    (*final , это final + new_states среди которых есть хоть один final*)
+  in
+  let final= new_states |> Set.fold ~init:(nfa.final |> Set.map ~f:(Set.singleton)) ~f:(fun state acc -> if ! Set.are_disjoint nfa.final state then Set.add acc state else acc)
+  in
+  Dfa {
+    }
