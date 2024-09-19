@@ -344,6 +344,7 @@ let make_deterministic (Nfa nfa) =
            data
            |> Set.fold ~init:acc ~f:(fun acc (_, state) -> Set.add acc state) )
   in
+  let new_states = Set.add new_states nfa.start in
   let new_nodes_out_transitions =
     new_states |> Set.to_list
     |> List.map (fun state ->
@@ -353,10 +354,18 @@ let make_deterministic (Nfa nfa) =
              |> Map.data |> List.map Set.to_list |> List.concat |> Set.of_list
            ) )
     |> Map.of_alist_exn
-    (*добавить new_nodes_in_transitions и добавить new_nodes_out_transitions*)
-    (*final , это final + new_states среди которых есть хоть один final*)
   in
-  let final= new_states |> Set.fold ~init:(nfa.final |> Set.map ~f:(Set.singleton)) ~f:(fun state acc -> if ! Set.are_disjoint nfa.final state then Set.add acc state else acc)
-  in
-  Dfa {
-    }
+  Dfa
+    { final=
+        new_states
+        |> Set.fold
+             ~init:(nfa.final |> Set.map ~f:Set.singleton)
+             ~f:(fun acc state ->
+               if not (Set.are_disjoint nfa.final state) then Set.add acc state
+               else acc )
+    ; start= nfa.start
+    ; transitions=
+        Map.merge_skewed new_nodes_out_transitions new_nodes_in_transitions
+          ~combine:(fun ~key:_ -> Set.union )
+        |> Map.merge_skewed replaced_transitions ~combine:(fun ~key:_ ->
+               Set.union ) }
