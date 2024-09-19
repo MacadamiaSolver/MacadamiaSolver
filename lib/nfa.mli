@@ -38,3 +38,5 @@ val create_dfa :
 val run_dfa : 'v dfa -> ('v, bit) Map.t list -> bool
 
 val to_nfa : 'v dfa -> 'v nfa
+
+val make_deterministic : 'v nfa -> 'v dfa
