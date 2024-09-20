@@ -273,99 +273,95 @@ let to_nfa (Dfa dfa) =
     ; transitions= dfa.transitions }
 
 let except mask1 mask2 =
-  Map.merge mask1 mask2 ~f:(fun ~key data ->
-      let _ = key in
-      Some
-        ( match data with
-          | `Left a ->
-              Some a
-          | `Right (a : bit) ->
-              Some (match a with Bits.O -> Bits.I | Bits.I -> Bits.O)
-          | `Both (a, b) ->
-              if a = b then Some a else None ) )
-  |> option_map_to_map_option
+  let res =
+    Map.merge mask1 mask2 ~f:(fun ~key data ->
+        let _ = key in
+        Some
+          ( match data with
+            | `Left a ->
+                Some a
+            | `Right (a : bit) ->
+                Some (match a with Bits.O -> Bits.I | Bits.I -> Bits.O)
+            | `Both (a, b) ->
+                if a = b then Some a else None ) )
+    |> option_map_to_map_option
+  in
+  match res with
+    | None ->
+        mask1
+    | Some a ->
+        if Sequence.is_empty (Map.symmetric_diff mask1 mask2 ~data_equal:( = ))
+        then Map.empty
+        else a
 
 let make_deterministic (Nfa nfa) =
-  let collisions =
-    transitions_collisions nfa.transitions
-    |> List.filter_map (fun (a, trans1, trans2, dst1, dst2) ->
-           let* collision = combine trans1 trans2 in
-           let* new_trans1 = except trans1 collision in
-           let* new_trans2 = except trans2 collision in
-           Some
-             ( a
-             , ( collision
-               , [(trans1, new_trans1, dst1); (trans2, new_trans2, dst2)] ) ) )
-    |> Map.of_alist_multi
-    |> Map.map ~f:Map.of_alist_multi
-    |> Map.map ~f:(Map.map ~f:(fun x -> x |> List.concat |> Set.of_list))
+  let rec multiple_transition_combinations transitions =
+    match transitions with
+      | [] ->
+          []
+      | (head_mask, head_state) :: [] ->
+          [(head_mask, Set.singleton head_state)]
+      | (head_mask, head_state) :: tl ->
+          let combs = multiple_transition_combinations tl in
+          let combine_trans =
+            combs
+            |> List.filter_map (fun (mask, multi_state) ->
+                   let* comb = combine head_mask mask in
+                   Some (comb, Set.add multi_state head_state) )
+          in
+          let except_trans =
+            combs
+            |> List.filter_map (fun (mask, multi_state) ->
+                   let new_mask = except mask head_mask in
+                   if Map.is_empty new_mask then None
+                   else Some (new_mask, multi_state) )
+          in
+          let head_trans =
+            combs
+            |> List.fold_left (fun acc (mask, _) -> except acc mask) head_mask
+          in
+          List.concat
+            [ combine_trans
+            ; except_trans
+            ; ( if Map.is_empty head_trans then []
+                else [(head_trans, Set.singleton head_state)] ) ]
   in
-  let new_nodes_in_transitions =
-    collisions
-    |> Map.map ~f:(fun x ->
-           x |> Map.to_alist
-           |> List.map (fun (collision, dsts) ->
-                  (collision, Set.map dsts ~f:(fun (_, _, dst) -> dst)) )
-           |> Set.of_list )
-    |> Map.to_alist
-    |> List.map (fun (state, trans) -> (Set.singleton state, trans))
-    |> Map.of_alist_exn
+  let rec helper processed_states states_to_process transitions =
+    match states_to_process with
+      | [] ->
+          (transitions, processed_states)
+      | multi_state :: tl ->
+          let multi_state_trans =
+            Set.map multi_state ~f:(fun state ->
+                match Map.find nfa.transitions state with
+                  | None ->
+                      []
+                  | Some a ->
+                      a |> Set.to_list )
+            |> Set.to_list |> List.concat |> multiple_transition_combinations
+          in
+          let new_states =
+            multi_state_trans
+            |> List.fold_left
+                 (fun acc (_, multi_state) ->
+                   match List.find_opt (( = ) multi_state) processed_states with
+                     | None ->
+                         List.append acc [multi_state]
+                     | Some _ ->
+                         acc )
+                 []
+          in
+          helper
+            (List.append processed_states [multi_state])
+            (List.append tl new_states)
+            (Map.add_exn transitions ~key:multi_state
+               ~data:(multi_state_trans |> Set.of_list) )
   in
-  let old_nodes_edge_replacements =
-    collisions
-    |> Map.map ~f:(fun x ->
-           x |> Map.to_alist
-           |> List.map (fun (_, dsts) -> dsts |> Set.to_list)
-           |> List.concat |> Set.of_list )
-  in
-  let replaced_transitions =
-    old_nodes_edge_replacements
-    |> Map.fold ~init:nfa.transitions
-         ~f:(fun ~key:repl_key ~data:repl_set repl_acc ->
-           repl_set
-           |> Set.fold ~init:repl_acc
-                ~f:(fun acc (repl_mask, repl, repl_state) ->
-                  Map.change acc repl_key ~f:(fun s ->
-                      let* s = s in
-                      Some
-                        ( s
-                        |> Set.map ~f:(fun (mask, state) ->
-                               if mask = repl_mask && state = repl_state then
-                                 (repl, state)
-                               else (mask, state) ) ) ) ) )
-    |> Map.to_alist
-    |> List.map (fun (key, value) -> (Set.singleton key, value))
-    |> Map.of_alist_exn
-    |> Map.map ~f:(Set.map ~f:(fun (mask, state) -> (mask, Set.singleton state)))
-  in
-  let new_states =
-    new_nodes_in_transitions
-    |> Map.fold ~init:Set.empty ~f:(fun ~key:_ ~data acc ->
-           data
-           |> Set.fold ~init:acc ~f:(fun acc (_, state) -> Set.add acc state) )
-  in
-  let new_states = Set.add new_states nfa.start in
-  let new_nodes_out_transitions =
-    new_states |> Set.to_list
-    |> List.map (fun state ->
-           ( state
-           , replaced_transitions
-             |> Map.filter_keys ~f:(Set.is_subset ~of_:state)
-             |> Map.data |> List.map Set.to_list |> List.concat |> Set.of_list
-           ) )
-    |> Map.of_alist_exn
-  in
+  let transitions, states = helper [] [nfa.start] Map.empty in
   Dfa
     { final=
-        new_states
-        |> Set.fold
-             ~init:(nfa.final |> Set.map ~f:Set.singleton)
-             ~f:(fun acc state ->
-               if not (Set.are_disjoint nfa.final state) then Set.add acc state
-               else acc )
+        states
+        |> List.filter (fun state -> not (Set.are_disjoint state nfa.final))
+        |> Set.of_list
     ; start= nfa.start
-    ; transitions=
-        Map.merge_skewed new_nodes_out_transitions new_nodes_in_transitions
-          ~combine:(fun ~key:_ -> Set.union )
-        |> Map.merge_skewed replaced_transitions ~combine:(fun ~key:_ ->
-               Set.union ) }
+    ; transitions }
