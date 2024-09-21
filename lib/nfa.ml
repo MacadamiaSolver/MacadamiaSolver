@@ -344,7 +344,7 @@ let make_deterministic (Nfa nfa) =
             multi_state_trans
             |> List.fold_left
                  (fun acc (_, multi_state) ->
-                   match List.find_opt (( = ) multi_state) processed_states with
+                   match List.find_opt (Set.equal multi_state) (List.append processed_states states_to_process) with
                      | None ->
                          List.append acc [multi_state]
                      | Some _ ->
