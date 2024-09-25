@@ -10,8 +10,6 @@ val create_nfa :
   -> final:'s list
   -> 'var nfa
 
-val vars : 'v nfa -> 'v list
-
 val run_nfa : 'v nfa -> ('v, bit) Map.t list -> bool
 
 val map_varname : ('a -> 'b) -> 'a nfa -> 'b nfa
@@ -19,6 +17,8 @@ val map_varname : ('a -> 'b) -> 'a nfa -> 'b nfa
 val remove_unreachable : 'v nfa -> 'v nfa
 
 val intersect : 'v nfa -> 'v nfa -> 'v nfa
+
+val unite : 'v nfa -> 'v nfa -> 'v nfa
 
 val project : ('v -> bool) -> 'v nfa -> 'v nfa
 
@@ -40,3 +40,7 @@ val create_dfa :
 val run_dfa : 'v dfa -> ('v, bit) Map.t list -> bool
 
 val to_nfa : 'v dfa -> 'v nfa
+
+val to_dfa: 'v nfa -> 'v dfa
+
+val invert: 'v dfa -> 'v dfa

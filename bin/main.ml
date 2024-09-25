@@ -4,6 +4,7 @@
 
 open Lib
 module Map = Nfa.Map
+module Set = Base.Set.Poly
 
 open Format
 
@@ -21,7 +22,9 @@ let nfa_unit = NfaCollection.Neutral.n () |> Nfa.to_nfa
 
 let rec teval = function
   | Ast.Var a -> (Var a, nfa_unit)
-  | Ast.Const a -> (Const a, nfa_unit)
+  | Ast.Const a ->
+    let res = Internal (Oo.id object end) in
+    (res, (NfaCollection.Eq.eq_const res a) |> Nfa.to_nfa)
   | Ast.Add (l, r) ->
     let (lv, la) = teval l in
     let (rv, ra) = teval r in
@@ -35,7 +38,9 @@ let rec teval = function
   | Ast.Mul (a, b) ->
     let rec teval_mul a b =
       match a with
-      | 0 -> (Const 0, nfa_unit)
+      | 0 -> 
+        let res = Internal (Oo.id object end) in
+        (res, (NfaCollection.Eq.eq_const res 0) |> Nfa.to_nfa)
       | 1 -> teval b
       | _ ->
         match a mod 2 with
@@ -61,6 +66,11 @@ let rec teval = function
       in
     teval_mul a b
 
+let rec repeat el n =
+  match n with
+  | 0 -> []
+  | _ as i -> el :: repeat el (n - 1)
+
 let rec eval state = function
   | Ast.Equals (l, r) ->
     let (lv, la) = teval l in
@@ -75,29 +85,42 @@ let rec eval state = function
       | Internal _ -> false)
     |> Nfa.remove_unreachable
     |> Result.ok
-  | Ast.Mnot f -> Result.error "Not is not yet implemented"
+  | Ast.Mnot f ->
+    (match eval state f with
+    | Ok v ->
+        Nfa.to_dfa v
+        |> Nfa.invert
+        |> Nfa.to_nfa
+        |> Result.ok
+    | _ as a -> a)
   | Ast.Mand (f1, f2) ->
     let lr = eval state f1 in
     let rr = eval state f2 in
     (match (lr, rr) with
-      | (Ok la, Ok ra) -> Nfa.intersect la ra |> Result.ok
+      | (Ok la, Ok ra) ->
+        (Nfa.intersect la ra)
+        |> Result.ok
       | (Error _, _) -> lr
       | _ -> rr)
   | Ast.Mor (f1, f2) ->
-    Result.error "Or is not yet implemented"
+    let lr = eval state f1 in
+    let rr = eval state f2 in
+    (match (lr, rr) with
+      | (Ok la, Ok ra) -> (Nfa.unite la ra) |> Result.ok
+      | (Error _, _) -> lr
+      | _ -> rr)
   | Ast.Exists (x, f) ->
-    let a = eval state f in
-    (match a with
+    (match eval state f with
       | Ok a ->
         Nfa.project ((<>) (Var x)) a
         |> Nfa.remove_unreachable
         |> Result.ok
-      | _ -> a)
+      | _ as a -> a)
   | Ast.Pred (name, args) ->
     let args = List.map teval args in
     (match List.find_opt (fun (pred_name, _, _) -> pred_name = name) state with
       | Some (_, pred_params, pred_nfa) ->
-        pred_nfa
+        let nfa = pred_nfa
         |> Nfa.map_varname
           (function
             | Var s ->
@@ -110,8 +133,14 @@ let rec eval state = function
             | x -> x)
         |> List.fold_right
           (fun acc a -> Nfa.intersect acc a)
-          (List.map (fun (av, aa) -> aa) args)
-        |> Result.ok
+          (List.map (fun (_, arg) -> arg) args)
+        |> Nfa.project (function
+          | Var _
+          | Const _ -> true
+          | Internal _ -> false) in
+        (match Nfa.run_nfa nfa (repeat Map.empty 10000) with
+        | true -> Result.ok nfa_unit
+        | _ -> Result.ok nfa)
       | None -> Printf.sprintf "Unknown predicate %s" name |> Result.error)
   | _ -> Result.error "unimplemented"
 
@@ -120,12 +149,9 @@ let exec state = function
     let res = eval state f in
     (match res with
     | Ok nfa ->
-      let res = Nfa.run_nfa
-        nfa
-          ((List.init 63 (fun x -> x + 1))
-          |> List.map (fun i ->
-              (Map.singleton (Const 1) (List.nth (Bits.to_bit_string 1) (i - 1))))) in
-      Format.printf "Result: %b\n\n" res; state
+      let res = Nfa.run_nfa nfa (repeat Map.empty 10000) in
+      Format.printf "Result: %b\n\n" res;
+      state
     | Error msg -> Format.printf "Error: %s\n\n" msg; state)
   | Ast.Dump f ->
     let res = eval state f in
@@ -153,6 +179,7 @@ let () =
       Format.printf "Error: %s\n\n" msg;
       input_and_solve state;
   in
+  (*Format.printf "Result: %d\n\n" (match List.nth (Bits.to_bit_string 2) (2 - 1) with
+  | Bits.I -> 1
+  | Bits.O -> 0);*)
   input_and_solve []
-
-      (*Format.printf "Result: %B\n\n" res*)

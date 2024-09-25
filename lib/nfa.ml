@@ -23,8 +23,6 @@ let create_nfa ~(transitions : ('s * ('var, bit) Map.t * 's) list)
     ; final= Set.of_list final
     ; start= Set.of_list start }
 
-let vars nfa =
-
 let matches (mask : ('a, 'b) Map.t) (map : ('a, 'b) Map.t) : bool =
   Map.fold2 mask map ~init:true ~f:(fun ~key ~data acc ->
       let _ = key in
@@ -134,6 +132,38 @@ let intersect (Nfa nfa1) (Nfa nfa2) =
                in
                if Set.is_empty set then None else Some ((src1, src2), set) )
         |> Map.of_sequence_reduce ~f:Set.union }
+
+let unite (Nfa nfa1) (Nfa nfa2) =
+  let start = Set.union
+    (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.start)
+    (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.start) in
+  let final = Set.union
+    (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.start)
+    (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.start) in
+  let transitions =
+    Map.merge
+      (Map.to_sequence nfa1.transitions
+      |> Sequence.map
+        ~f:(fun (q1, s) ->
+          ((Option.some q1, Option.none),
+            (Set.map ~f:(fun (a, q2) -> (a, (Option.some q2, Option.none))) s)))
+      |> Map.of_sequence_reduce ~f:Set.union)
+      (Map.to_sequence nfa2.transitions
+      |> Sequence.map
+        ~f:(fun (q1, s) ->
+          ((Option.none, Option.some q1),
+            (Set.map ~f:(fun (a, q2) -> (a, (Option.none, Option.some q2))) s)))
+      |> Map.of_sequence_reduce ~f:Set.union)
+      ~f:(fun ~key:_ data ->
+        match data with
+          | `Left a -> Some(a)
+          | `Right a -> Some(a)
+          | `Both _ -> assert(false)) in
+  Nfa {
+    start = start
+    ; final = final
+    ; transitions = transitions
+  }
 
 let project f (Nfa nfa) =
   Nfa
@@ -273,3 +303,127 @@ let to_nfa (Dfa dfa) =
     { final= dfa.final
     ; start= Set.singleton dfa.start
     ; transitions= dfa.transitions }
+
+let except mask1 mask2 =
+  let res =
+    Map.merge mask1 mask2 ~f:(fun ~key data ->
+        let _ = key in
+        Some
+          ( match data with
+            | `Left a ->
+                Some a
+            | `Right (a : bit) ->
+                Some (match a with Bits.O -> Bits.I | Bits.I -> Bits.O)
+            | `Both (a, b) ->
+                if a = b then Some a else None ) )
+    |> option_map_to_map_option
+  in
+  match res with
+    | None ->
+        mask1
+    | Some a ->
+        if Sequence.is_empty (Map.symmetric_diff mask1 mask2 ~data_equal:( = ))
+        then Map.empty
+        else a
+
+let to_dfa (Nfa nfa) =
+  let rec multiple_transition_combinations transitions =
+    match transitions with
+      | [] ->
+          []
+      | (head_mask, head_state) :: [] ->
+          [(head_mask, Set.singleton head_state)]
+      | (head_mask, head_state) :: tl ->
+          let combs = multiple_transition_combinations tl in
+          let combine_trans =
+            combs
+            |> List.filter_map (fun (mask, multi_state) ->
+                   let* comb = combine head_mask mask in
+                   Some (comb, Set.add multi_state head_state) )
+          in
+          let except_trans =
+            combs
+            |> List.filter_map (fun (mask, multi_state) ->
+                   let new_mask = except mask head_mask in
+                   if Map.is_empty new_mask then None
+                   else Some (new_mask, multi_state) )
+          in
+          let head_trans =
+            combs
+            |> List.fold_left (fun acc (mask, _) -> except acc mask) head_mask
+          in
+          List.concat
+            [ combine_trans
+            ; except_trans
+            ; ( if Map.is_empty head_trans then []
+                else [(head_trans, Set.singleton head_state)] ) ]
+  in
+  let rec helper processed_states states_to_process transitions =
+    match states_to_process with
+      | [] ->
+          (transitions, processed_states)
+      | multi_state :: tl ->
+          let multi_state_trans =
+            Set.map multi_state ~f:(fun state ->
+                match Map.find nfa.transitions state with
+                  | None ->
+                      []
+                  | Some a ->
+                      a |> Set.to_list )
+            |> Set.to_list |> List.concat |> multiple_transition_combinations
+          in
+          let new_states =
+            multi_state_trans
+            |> List.fold_left
+                 (fun acc (_, multi_state) ->
+                   match List.find_opt (Set.equal multi_state) (List.append processed_states states_to_process) with
+                     | None ->
+                         List.append acc [multi_state]
+                     | Some _ ->
+                         acc )
+                 []
+          in
+          helper
+            (List.append processed_states [multi_state])
+            (List.append tl new_states)
+            (Map.add_exn transitions ~key:multi_state
+               ~data:(multi_state_trans |> Set.of_list) )
+  in
+  let transitions, states = helper [] [nfa.start] Map.empty in
+  Dfa
+    { final=
+        states
+        |> List.filter (fun state -> not (Set.are_disjoint state nfa.final))
+        |> Set.of_list
+    ; start= nfa.start
+    ; transitions }
+
+let invert (Dfa dfa) =
+  let states =
+    [dfa.final; Set.singleton dfa.start; Map.keys dfa.transitions |> Set.of_list]
+    @ (Map.data dfa.transitions |> List.map (Set.map ~f:snd))
+    |> Set.union_list in
+  let final = Set.diff dfa.final states in
+  let transitions = Map.empty
+    (*Map.merge
+      (Map.to_sequence dfa.transitions
+      |> Sequence.map
+        ~f:(fun (q1, s) ->
+          ((Option.some q1),
+            (Set.map ~f:(fun (a, q2) -> (a, (Option.some q2))) s)))
+      |> Map.of_sequence_reduce ~f:Set.union)
+      (Set.map ~f:(fun state ->
+        let arrows = Map.find_exn dfa.transitions state in
+        let existing = Set.map ~f:(fun (l, _) -> l)
+        Set.map ~f:(fun arrow -> arrow) arrows
+      ) states)
+      ~f:(fun ~key:_ data ->
+        match data with
+          | `Left a -> Some(a)
+          | `Right a -> Some(a)
+          | `Both _ -> assert(false)) *)in
+  Dfa
+    { final= final
+    ; start= dfa.start
+    ; transitions= transitions }
+
