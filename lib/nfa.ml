@@ -36,11 +36,31 @@ let matches (mask : ('a, 'b) Map.t) (map : ('a, 'b) Map.t) : bool =
         | `Both (a, b) ->
             a = b )
 
+let rec reachable_from transitions cur =
+  let next =
+    cur |> Set.to_sequence
+    |> Sequence.map ~f:(fun x ->
+           x |> Map.find transitions |> Base.Option.value ~default:Set.empty )
+    |> Sequence.to_list |> Set.union_list
+  in
+  if next |> Set.is_subset ~of_:cur then cur
+  else reachable_from transitions @@ Set.union cur next
+
 let run_nfa (Nfa nfa) str =
   let rec helper str states =
     match str with
       | [] ->
-          Set.are_disjoint states nfa.final |> not
+          let transitions =
+            nfa.transitions
+            |> Map.map
+                 ~f:
+                   (Set.filter_map ~f:(fun x ->
+                        if x |> fst |> Map.for_all ~f:(( = ) Bits.O) then
+                          Some (snd x)
+                        else None ) )
+          in
+          let reachable = reachable_from transitions states in
+          Set.are_disjoint reachable nfa.final |> not
       | h :: tl ->
           states |> Set.to_list
           |> List.map (fun state ->
@@ -95,17 +115,7 @@ let combine mask1 mask2 =
 
 let remove_unreachable (Nfa nfa) =
   let transitions = nfa.transitions |> Map.map ~f:(Set.map ~f:snd) in
-  let rec reachable_from cur =
-    let next =
-      cur |> Set.to_sequence
-      |> Sequence.map ~f:(fun x ->
-             x |> Map.find transitions |> Base.Option.value ~default:Set.empty )
-      |> Sequence.to_list |> Set.union_list
-    in
-    if next |> Set.is_subset ~of_:cur then cur
-    else reachable_from @@ Set.union cur next
-  in
-  let reachable = reachable_from nfa.start in
+  let reachable = reachable_from transitions nfa.start in
   Nfa
     { start= nfa.start
     ; final= Set.inter nfa.final reachable
