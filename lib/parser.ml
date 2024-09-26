@@ -41,8 +41,9 @@ let chainl1 e op =
 
 let term =
   fix (fun term ->
-      let aterm2 = parens term <|> mul term <|> const <|> var in
-      chainl1 aterm2 sum )
+      let aterm1 = parens term <|> const <|> var in
+      let aterm2 = mul aterm1 <|> aterm1 in
+      chainl1 aterm2 sum)
 
 let mand = whitespace *> char '&' *> whitespace *> return Ast.mand
 
@@ -96,7 +97,7 @@ let def =
     (whitespace *> char ':' *> whitespace *> formula <* char ';')
 
 let stmt =
-  eval <|> def <|> dump
+  eval <|> def <|> dump <|> fail "Unknown statement kind"
 
 let parse_formula str = parse_string ~consume:All formula str
 let parse str = parse_string ~consume:All stmt str

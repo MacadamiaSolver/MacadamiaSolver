@@ -19,6 +19,7 @@ let format_atom ppf = function
   | Internal a -> fprintf ppf "Internal %d" a
 
 let nfa_unit = NfaCollection.Neutral.n () |> Nfa.to_nfa
+let nfa_zero = NfaCollection.Neutral.z () |> Nfa.to_nfa
 
 let rec teval = function
   | Ast.Var a -> (Var a, nfa_unit)
@@ -38,13 +39,13 @@ let rec teval = function
   | Ast.Mul (a, b) ->
     let rec teval_mul a b =
       match a with
-      | 0 -> 
+      | 0 ->
         let res = Internal (Oo.id object end) in
         (res, (NfaCollection.Eq.eq_const res 0) |> Nfa.to_nfa)
       | 1 -> teval b
       | _ ->
         match a mod 2 with
-          | 0 -> 
+          | 0 ->
             let (tv, ta) = teval_mul (a / 2) b in
             let res = Internal (Oo.id object end) in
             (res,
@@ -66,11 +67,6 @@ let rec teval = function
       in
     teval_mul a b
 
-let rec repeat el n =
-  match n with
-  | 0 -> []
-  | _ as i -> el :: repeat el (n - 1)
-
 let rec eval state = function
   | Ast.Equals (l, r) ->
     let (lv, la) = teval l in
@@ -91,6 +87,7 @@ let rec eval state = function
         Nfa.to_dfa v
         |> Nfa.invert
         |> Nfa.to_nfa
+        |> Nfa.remove_unreachable
         |> Result.ok
     | _ as a -> a)
   | Ast.Mand (f1, f2) ->
@@ -116,6 +113,20 @@ let rec eval state = function
         |> Nfa.remove_unreachable
         |> Result.ok
       | _ as a -> a)
+  | Ast.Any (x, f) ->
+    (match eval state f with
+      | Ok v ->
+        Nfa.to_dfa v
+        |> Nfa.invert
+        |> Nfa.to_nfa
+        |> Nfa.remove_unreachable
+        |> Nfa.project ((<>) (Var x))
+        |> Nfa.to_dfa
+        |> Nfa.invert
+        |> Nfa.to_nfa
+        |> Nfa.remove_unreachable
+        |> Result.ok
+      | _ as a -> a)
   | Ast.Pred (name, args) ->
     let args = List.map teval args in
     (match List.find_opt (fun (pred_name, _, _) -> pred_name = name) state with
@@ -138,9 +149,7 @@ let rec eval state = function
           | Var _
           | Const _ -> true
           | Internal _ -> false) in
-        (match Nfa.run_nfa nfa (repeat Map.empty 10000) with
-        | true -> Result.ok nfa_unit
-        | _ -> Result.ok nfa)
+        Result.ok nfa
       | None -> Printf.sprintf "Unknown predicate %s" name |> Result.error)
   | _ -> Result.error "unimplemented"
 
@@ -149,7 +158,7 @@ let exec state = function
     let res = eval state f in
     (match res with
     | Ok nfa ->
-      let res = Nfa.run_nfa nfa (repeat Map.empty 10000) in
+      let res = Nfa.run_nfa nfa [] in
       Format.printf "Result: %b\n\n" res;
       state
     | Error msg -> Format.printf "Error: %s\n\n" msg; state)
@@ -157,7 +166,12 @@ let exec state = function
     let res = eval state f in
     (match res with
     | Ok nfa ->
-      Format.printf "%a\n\n" (Nfa.format_nfa format_atom) nfa; state
+      let oc = open_out "output.dot" in
+      let out = Format.asprintf "%a" (Nfa.format_nfa format_atom) nfa in
+      Printf.fprintf oc "%s" out;
+      close_out oc;
+      Sys.command "dot -Tsvg output.dot > output.svg; display output.svg";
+      state
     | Error msg -> Format.printf "Error: %s\n\n" msg; state)
   | Ast.Def (name, params, formula) ->
     match eval state formula with

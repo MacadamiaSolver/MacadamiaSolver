@@ -44,3 +44,5 @@ val to_nfa : 'v dfa -> 'v nfa
 val to_dfa: 'v nfa -> 'v dfa
 
 val invert: 'v dfa -> 'v dfa
+
+val is_graph: 'v nfa -> bool

@@ -60,4 +60,8 @@ module Neutral = struct
   let n () =
     Nfa.create_dfa ~transitions:[((), Map.empty, ())] ~start:() ~final:[()]
     |> Result.get_ok
+
+  let z () =
+    Nfa.create_dfa ~transitions:[] ~start:() ~final:[]
+    |> Result.get_ok
 end

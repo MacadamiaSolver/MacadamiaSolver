@@ -10,4 +10,5 @@ end
 
 module Neutral : sig
   val n : unit -> 'a Nfa.dfa
+  val z : unit -> 'a Nfa.dfa
 end
