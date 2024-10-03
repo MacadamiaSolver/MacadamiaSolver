@@ -273,26 +273,34 @@ let to_nfa (Dfa dfa) =
     ; transitions= dfa.transitions }
 
 let except mask1 mask2 =
-  let res =
-    Map.merge mask1 mask2 ~f:(fun ~key data ->
-        let _ = key in
-        Some
-          ( match data with
-            | `Left a ->
-                Some a
-            | `Right (a : bit) ->
-                Some (match a with Bits.O -> Bits.I | Bits.I -> Bits.O)
-            | `Both (a, b) ->
-                if a = b then Some a else None ) )
-    |> option_map_to_map_option
-  in
-  match res with
+  match combine mask1 mask2 with
     | None ->
-        mask1
-    | Some a ->
+        [mask1]
+    | Some _ ->
         if Sequence.is_empty (Map.symmetric_diff mask1 mask2 ~data_equal:( = ))
-        then Map.empty
-        else a
+        then [Map.empty]
+        else
+          let only_right =
+            Map.merge mask1 mask2 ~f:(fun ~key:_ data ->
+                match data with `Right b -> Some b | _ -> None )
+          in
+          only_right
+          |> Map.fold ~init:[] ~f:(fun ~key ~data:_ acc ->
+                 ( only_right
+                 |> Map.fold ~init:mask1
+                      ~f:(fun
+                          ~key:internal_key ~data:internal_data internal_acc ->
+                        internal_acc
+                        |> Map.add_exn ~key:internal_key
+                             ~data:
+                               ( if internal_key = key then
+                                   match internal_data with
+                                     | Bits.O ->
+                                         Bits.I
+                                     | Bits.I ->
+                                         Bits.O
+                                 else internal_data ) ) )
+                 :: acc )
 
 let make_deterministic (Nfa nfa) =
   let rec multiple_transition_combinations transitions =
@@ -312,19 +320,25 @@ let make_deterministic (Nfa nfa) =
           let except_trans =
             combs
             |> List.filter_map (fun (mask, multi_state) ->
-                   let new_mask = except mask head_mask in
-                   if Map.is_empty new_mask then None
-                   else Some (new_mask, multi_state) )
+                   let new_masks =
+                     except mask head_mask
+                     |> List.filter (fun v -> Map.is_empty v |> not)
+                   in
+                   if List.is_empty new_masks then None
+                   else Some (new_masks, multi_state) )
+            |> List.map (fun (l, s) -> List.map (fun v -> (v, s)) l)
+            |> List.concat
           in
           let head_trans =
             combs
-            |> List.fold_left (fun acc (mask, _) -> except acc mask) head_mask
+            |> List.fold_left
+                 (fun acc (mask, _) ->
+                   List.map (fun v -> except v mask) acc |> List.concat )
+                 [head_mask]
+            |> List.filter (fun v -> Map.is_empty v |> not)
+            |> List.map (fun trans -> (trans, Set.singleton head_state))
           in
-          List.concat
-            [ combine_trans
-            ; except_trans
-            ; ( if Map.is_empty head_trans then []
-                else [(head_trans, Set.singleton head_state)] ) ]
+          List.concat [combine_trans; except_trans; head_trans]
   in
   let rec helper processed_states states_to_process transitions =
     match states_to_process with
@@ -344,7 +358,10 @@ let make_deterministic (Nfa nfa) =
             multi_state_trans
             |> List.fold_left
                  (fun acc (_, multi_state) ->
-                   match List.find_opt (Set.equal multi_state) (List.append processed_states states_to_process) with
+                   match
+                     List.find_opt (Set.equal multi_state)
+                       (List.append processed_states states_to_process)
+                   with
                      | None ->
                          List.append acc [multi_state]
                      | Some _ ->
