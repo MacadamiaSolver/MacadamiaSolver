@@ -392,7 +392,7 @@ let to_dfa (Nfa nfa) =
                  (fun acc (_, multi_state) ->
                    match
                      List.find_opt (Set.equal multi_state)
-                       (List.append processed_states states_to_process)
+                       (List.append processed_states states_to_process |> List.append acc)
                    with
                      | None ->
                          List.append acc [multi_state]
