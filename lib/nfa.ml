@@ -472,7 +472,7 @@ let invert (Dfa dfa) =
 
 let is_graph (Nfa nfa) =
   nfa.transitions
-  |> Map.exists ~f:(Set.exists ~f:(fun x -> x |> fst |> Map.is_empty))
+  |> Map.for_all ~f:(Set.for_all ~f:(fun x -> x |> fst |> Map.is_empty))
 
 let project f (Nfa nfa) =
   let nfa = Nfa
