@@ -9,6 +9,8 @@ open Format
 
 type atom = Var of string | Const of int | Internal of int
 
+let _ = Const 1
+
 let format_atom ppf = function
   | Var a ->
       fprintf ppf "Var %s" a
@@ -19,7 +21,7 @@ let format_atom ppf = function
 
 let nfa_unit = NfaCollection.Neutral.n () |> Nfa.to_nfa
 
-let nfa_zero = NfaCollection.Neutral.z () |> Nfa.to_nfa
+(* let nfa_zero = NfaCollection.Neutral.z () |> Nfa.to_nfa *)
 
 let rec teval = function
   | Ast.Var a ->
@@ -168,7 +170,7 @@ let exec state = function
             let out = Format.asprintf "%a" (Nfa.format_nfa format_atom) nfa in
             Printf.fprintf oc "%s" out;
             close_out oc;
-            Sys.command "dot -Tsvg output.dot > output.svg; display output.svg";
+            Sys.command "dot -Tsvg output.dot > output.svg; display output.svg" |> ignore;
             state
         | Error msg ->
             Format.printf "Error: %s\n\n" msg;
