@@ -7,6 +7,7 @@ open Angstrom
 let ( << ) f g x = f (g x)
 
 let is_name = function 'a' .. 'z' -> true | '_' -> true | _ -> false
+
 let name = take_while1 is_name
 
 let is_whitespace = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
@@ -18,6 +19,7 @@ let is_digit = function '0' .. '9' -> true | _ -> false
 let const = take_while1 is_digit >>| (Ast.const << int_of_string)
 
 let is_smallchar = function 'a' .. 'z' -> true | _ -> false
+
 let is_bigchar = function 'A' .. 'Z' -> true | _ -> false
 
 let varname =
@@ -29,8 +31,11 @@ let var = varname >>| Ast.var
 
 let integer = take_while1 is_digit >>| int_of_string
 
-let mul term = lift3 (fun a _ b -> Ast.mul a b)
-  (integer <* whitespace) (char '*') (whitespace *> term)
+let mul term =
+  lift3
+    (fun a _ b -> Ast.mul a b)
+    (integer <* whitespace) (char '*') (whitespace *> term)
+
 let sum = whitespace *> char '+' *> whitespace *> return Ast.add
 
 let parens p = char '(' *> whitespace *> p <* whitespace <* char ')'
@@ -43,7 +48,7 @@ let term =
   fix (fun term ->
       let aterm1 = parens term <|> const <|> var in
       let aterm2 = mul aterm1 <|> aterm1 in
-      chainl1 aterm2 sum)
+      chainl1 aterm2 sum )
 
 let mand = whitespace *> char '&' *> whitespace *> return Ast.mand
 
@@ -55,10 +60,16 @@ let equals = whitespace *> char '=' *> whitespace *> return Ast.equals
 
 let pred_params =
   fix (fun pred_params ->
-    (lift2 (fun a b -> List.cons a b) (whitespace *> term) pred_params) <|> return [])
+      lift2 (fun a b -> List.cons a b) (whitespace *> term) pred_params
+      <|> return [] )
 
 let predname = take_while1 is_bigchar
-let pred = lift2 (fun a b -> Ast.pred a b) (predname <* whitespace) (char '(' *> pred_params <* whitespace <* char ')')
+
+let pred =
+  lift2
+    (fun a b -> Ast.pred a b)
+    (predname <* whitespace)
+    (char '(' *> pred_params <* whitespace <* char ')')
 
 let formula =
   fix (fun formula ->
@@ -78,26 +89,31 @@ let formula =
         char 'A'
         *> lift2 (fun a b -> Ast.any a b) varname (whitespace *> formula)
       in
-      let aformula = parens formula <|> exists <|> any <|> mnot <|> equals <|> pred in
+      let aformula =
+        parens formula <|> exists <|> any <|> mnot <|> equals <|> pred
+      in
       let aformula2 = chainl1 aformula mand in
       let aformula3 = chainl1 aformula2 mor in
       chainl1 aformula3 mimpl )
 
 let eval = string "eval" *> whitespace *> formula <* char ';' >>| Ast.eval
+
 let dump = string "dump" *> whitespace *> formula <* char ';' >>| Ast.dump
 
 let def_params =
   fix (fun def_params ->
-    (lift2 (fun a b -> List.cons a b) (whitespace *> varname) def_params) <|> return [])
+      lift2 (fun a b -> List.cons a b) (whitespace *> varname) def_params
+      <|> return [] )
+
 let def =
   lift3
     (fun n p f -> Ast.def n p f)
     (string "def" *> whitespace *> predname)
-    (def_params)
+    def_params
     (whitespace *> char ':' *> whitespace *> formula <* char ';')
 
-let stmt =
-  eval <|> def <|> dump <|> fail "Unknown statement kind"
+let stmt = eval <|> def <|> dump <|> fail "Unknown statement kind"
 
 let parse_formula str = parse_string ~consume:All formula str
+
 let parse str = parse_string ~consume:All stmt str

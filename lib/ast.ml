@@ -3,9 +3,14 @@
 (** SPDX-License-Identifier: MIT *)
 
 type varname = string
+
 type predname = string
 
-type term = Var of varname | Const of int | Add of term * term | Mul of int * term
+type term =
+  | Var of varname
+  | Const of int
+  | Add of term * term
+  | Mul of int * term
 
 type formula =
   | Pred of predname * term list
@@ -64,7 +69,7 @@ let rec string_of_term = function
 
 let rec string_of_formula = function
   | Pred (a, b) ->
-      "(Pred " ^ a ^ " " ^ (String.concat " " (List.map string_of_term b)) ^ ")"
+      "(Pred " ^ a ^ " " ^ String.concat " " (List.map string_of_term b) ^ ")"
   | Equals (a, b) ->
       "(Equals " ^ string_of_term a ^ " " ^ string_of_term b ^ ")"
   | Mnot a ->
@@ -86,4 +91,4 @@ let string_of_stmt = function
   | Dump f ->
       "Dump " ^ string_of_formula f
   | Def (x, p, f) ->
-      "Def " ^ x ^ " " ^ (String.concat " " p) ^ " = " ^ string_of_formula f
+      "Def " ^ x ^ " " ^ String.concat " " p ^ " = " ^ string_of_formula f

@@ -41,8 +41,8 @@ val run_dfa : 'v dfa -> ('v, bit) Map.t list -> bool
 
 val to_nfa : 'v dfa -> 'v nfa
 
-val to_dfa: 'v nfa -> 'v dfa
+val to_dfa : 'v nfa -> 'v dfa
 
-val invert: 'v dfa -> 'v dfa
+val invert : 'v dfa -> 'v dfa
 
-val is_graph: 'v nfa -> bool
+val is_graph : 'v nfa -> bool

@@ -3,9 +3,14 @@
 (* SPDX-License-Identifier: MIT *)
 
 type varname = string
+
 type predname = string
 
-type term = Var of varname | Const of int | Add of term * term | Mul of int * term
+type term =
+  | Var of varname
+  | Const of int
+  | Add of term * term
+  | Mul of int * term
 
 type formula =
   | Pred of predname * term list
@@ -56,4 +61,4 @@ val string_of_term : term -> string
 
 val string_of_formula : formula -> string
 
-val string_of_stmt: stmt -> string
+val string_of_stmt : stmt -> string
