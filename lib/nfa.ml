@@ -378,7 +378,65 @@ let except mask1 mask2 =
                                  else internal_data ) ) )
                  :: acc )
 
+let rec pow a = function
+  | 0 ->
+      1
+  | 1 ->
+      a
+  | n ->
+      let b = pow a (n / 2) in
+      b * b * if n mod 2 = 0 then 1 else a
+
+let ( -- ) i j =
+  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
+
+  aux j []
 let to_dfa (Nfa nfa) =
+  let rec aux mqs transitions =
+    match mqs with
+    | [] -> transitions
+    | qs :: mqs -> (
+      match Map.find transitions qs with
+      | Some _ -> transitions
+      | None -> (
+        let vars = Set.fold
+          ~f:Set.union
+          ~init:Set.empty
+          (Set.map ~f:(fun q ->
+            let dq = Map.find_exn nfa.transitions q in
+            Set.fold
+              ~f:Set.union 
+              ~init:Set.empty
+              (Set.map ~f:(fun (labels, q1) -> Map.keys labels |> Set.of_list) dq))
+            qs)
+            |> Set.to_list
+        in
+        let possible = 0 -- (pow 2 (List.length vars) - 1)
+          |> List.map (fun i ->
+            List.fold_right
+              (fun (x, y) -> Map.add_exn ~key:x ~data:y)
+              (List.mapi
+                 (fun j x ->
+                   ( x
+                   , match (1 lsl j) land i with
+                       | 0 ->
+                           Bits.O
+                       | _ ->
+                           Bits.I ) )
+                 vars)
+              Map.empty) in
+        List.map (fun d -> ) possible
+          |> Set.of_list
+        (*transitions*)
+      )
+    ) in
+  let transitions = aux [ nfa.start ] Map.empty in
+  Dfa
+    { final= Set.empty
+    ; start= nfa.start
+    ; transitions= transitions }
+
+let _to_dfa (Nfa nfa) =
   let rec multiple_transition_combinations transitions =
     match transitions with
       | [] ->
@@ -459,20 +517,8 @@ let to_dfa (Nfa nfa) =
         |> Set.of_list
     ; start= nfa.start
     ; transitions }
-  |> update_final_states_dfa
+  (*|> update_final_states_dfa*)
 
-let ( -- ) i j =
-  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
-  aux j []
-
-let rec pow a = function
-  | 0 ->
-      1
-  | 1 ->
-      a
-  | n ->
-      let b = pow a (n / 2) in
-      b * b * if n mod 2 = 0 then 1 else a
 
 let invert (Dfa dfa) =
   let states =

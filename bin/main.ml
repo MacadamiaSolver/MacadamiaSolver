@@ -71,7 +71,9 @@ let rec eval state = function
   | Ast.Equals (l, r) ->
       let lv, la = teval l in
       let rv, ra = teval r in
-      NfaCollection.Eq.eq lv rv |> Nfa.to_nfa |> Nfa.intersect la
+      NfaCollection.Eq.eq lv rv
+      |> Nfa.to_nfa 
+      |> Nfa.intersect la
       |> Nfa.intersect ra
       |> Nfa.project (function Var _ | Const _ -> true | Internal _ -> false)
       |> Nfa.remove_unreachable |> Result.ok
@@ -151,7 +153,7 @@ let rec eval state = function
   | _ ->
       Result.error "unimplemented"
 
-let exec state = function
+let exec state line = function
   | Ast.Eval f -> (
       let res = eval state f in
       match res with
@@ -166,11 +168,14 @@ let exec state = function
       let res = eval state f in
       match res with
         | Ok nfa ->
-            let oc = open_out "output.dot" in
+            let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in
+            let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in
+            let oc = open_out (Format.sprintf "dumps/%s.dot" line) in
             let out = Format.asprintf "%a" (Nfa.format_nfa format_atom) nfa in
+            let command = Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file svg_file svg_file in
             Printf.fprintf oc "%s" out;
             close_out oc;
-            Sys.command "dot -Tsvg output.dot > output.svg; display output.svg" |> ignore;
+            Sys.command command |> ignore;
             state
         | Error msg ->
             Format.printf "Error: %s\n\n" msg;
@@ -192,7 +197,7 @@ let () =
           (*match exec stmt with
             | Ok state -> input_and_solve state
             | Error msg -> Format.printf "Error: %s\n\n" msg;*)
-          exec state stmt |> input_and_solve
+          exec state line stmt |> input_and_solve
       | Error msg ->
           Format.printf "Error: %s\n\n" msg;
           input_and_solve state
