@@ -343,7 +343,7 @@ let make_deterministic (Nfa nfa) =
   let rec helper processed_states states_to_process transitions =
     match states_to_process with
       | [] ->
-          (transitions, processed_states)
+          (transitions, Set.to_list processed_states)
       | multi_state :: tl ->
           let multi_state_trans =
             Set.map multi_state ~f:(fun state ->
@@ -354,27 +354,20 @@ let make_deterministic (Nfa nfa) =
                       a |> Set.to_list )
             |> Set.to_list |> List.concat |> multiple_transition_combinations
           in
+          let new_processed_states = Set.add processed_states multi_state in
           let new_states =
-            multi_state_trans
-            |> List.fold_left
-                 (fun acc (_, multi_state) ->
-                   match
-                     List.find_opt (Set.equal multi_state)
-                       (List.append processed_states states_to_process |> List.append acc)
-                   with
-                     | None ->
-                         List.append acc [multi_state]
-                     | Some _ ->
-                         acc )
-                 []
+            Set.diff
+              ( multi_state_trans
+              |> List.map (fun (_, multi_state) -> multi_state)
+              |> Set.of_list )
+              (Set.of_list tl |> Set.union new_processed_states)
           in
-          helper
-            (List.append processed_states [multi_state])
-            (List.append tl new_states)
+          helper new_processed_states
+            (new_states |> Set.to_list |> List.append tl)
             (Map.add_exn transitions ~key:multi_state
                ~data:(multi_state_trans |> Set.of_list) )
   in
-  let transitions, states = helper [] [nfa.start] Map.empty in
+  let transitions, states = helper Set.empty [nfa.start] Map.empty in
   Dfa
     { final=
         states
