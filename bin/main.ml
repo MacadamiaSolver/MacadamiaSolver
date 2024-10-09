@@ -80,7 +80,7 @@ let rec eval state = function
   | Ast.Mnot f -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
+          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
           |> Result.ok
       | _ as a ->
           a )
@@ -107,15 +107,15 @@ let rec eval state = function
   | Ast.Exists (x, f) -> (
     match eval state f with
       | Ok a ->
-          Nfa.project (( <> ) (Var x)) a |> Nfa.remove_unreachable |> Result.ok
+          Nfa.project (( <> ) (Var x)) a |> Nfa.to_dfa |> Nfa.minimize |> Nfa.to_nfa |> Result.ok
       | _ as a ->
           a )
   | Ast.Any (x, f) -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
+          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
           |> Nfa.project (( <> ) (Var x))
-          |> Nfa.to_dfa |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
+          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
           |> Result.ok
       | _ as a ->
           a )
