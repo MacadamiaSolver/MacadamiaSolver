@@ -4,39 +4,24 @@
 
 open Angstrom
 
-let ( << ) f g x = f (g x)
-
-let is_name = function 'a' .. 'z' -> true | '_' -> true | _ -> false
-
-let name = take_while1 is_name
-
 let is_whitespace = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
 
 let whitespace = take_while is_whitespace
 
 let is_digit = function '0' .. '9' -> true | _ -> false
 
-let const = take_while1 is_digit >>| (Ast.const << int_of_string)
+let const = take_while1 is_digit >>| int_of_string >>| Ast.const
 
-let is_smallchar = function 'a' .. 'z' -> true | _ -> false
+let is_idschar = function 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false
+let is_idchar = function 'a' .. 'z' | 'A' .. 'Z' | '_' | '0' .. '9' -> true | _ -> false
+let ident =
+  let* a = satisfy is_idschar in
+  let* b = take_while is_idchar in
+  (String.make 1 a) ^ b |> return
 
-let is_bigchar = function 'A' .. 'Z' -> true | _ -> false
-
-let varname =
-  lift2
-    (fun a b -> String.make 1 a ^ b)
-    (satisfy is_smallchar) (take_while is_digit)
-
-let var = varname >>| Ast.var
+let var = ident >>| Ast.var
 
 let integer = take_while1 is_digit >>| int_of_string
-
-let mul term =
-  lift3
-    (fun a _ b -> Ast.mul a b)
-    (integer <* whitespace) (char '*') (whitespace *> term)
-
-let sum = whitespace *> char '+' *> whitespace *> return Ast.add
 
 let parens p = char '(' *> whitespace *> p <* whitespace <* char ')'
 
@@ -44,75 +29,92 @@ let chainl1 e op =
   let rec go acc = lift2 (fun f x -> f acc x) op e >>= go <|> return acc in
   e >>= go
 
+let un_op op ast p =  string op *> whitespace *> p >>| ast
+let bin_op op ast p =
+  let op = whitespace *> string op *> whitespace *> return ast in
+  chainl1 p op
+
+let opt q p = q p <|> p
+
+let mul term =
+  let* c = integer <* whitespace in
+  let* body = term in
+  Ast.mul c body |> return
+
 let term =
   fix (fun term ->
-      let aterm1 = parens term <|> const <|> var in
-      let aterm2 = mul aterm1 <|> aterm1 in
-      chainl1 aterm2 sum )
-
-let mand = whitespace *> char '&' *> whitespace *> return Ast.mand
-
-let mor = whitespace *> char '|' *> whitespace *> return Ast.mor
-
-let mimpl = whitespace *> string "->" *> whitespace *> return Ast.mimpl
-
-let equals = whitespace *> char '=' *> whitespace *> return Ast.equals
-
-let pred_params =
-  fix (fun pred_params ->
-      lift2 (fun a b -> List.cons a b) (whitespace *> term) pred_params
-      <|> return [] )
-
-let predname = take_while1 is_bigchar
+    parens term <|> const <|> var
+    |> opt mul
+    |> bin_op "+" Ast.add)
 
 let pred =
-  lift2
-    (fun a b -> Ast.pred a b)
-    (predname <* whitespace)
-    (char '(' *> pred_params <* whitespace <* char ')')
+  let* name = take_while1 is_idchar <* whitespace in
+  let* params = (whitespace *> term |> many) <* whitespace in
+  Ast.pred name params |> return
+
+let pred_op op ast =
+  let* a = term in
+  let* _ = whitespace *> string op <* whitespace in
+  let* b = term in
+  ast a b |> return
+
+let aformula =
+   pred_op "=" Ast.eq <|>
+   pred_op "!=" Ast.neq <|>
+   pred_op "<" Ast.lt <|>
+   pred_op ">" Ast.gt <|>
+   pred_op "<=" Ast.geq <|>
+   pred_op ">=" Ast.leq <|>
+   pred
+
+let quantifier sym ast formula = 
+  let* _ = char sym in
+  let* var = ident in
+  let* formula = whitespace *> formula in
+  ast var formula |> return
 
 let formula =
   fix (fun formula ->
-      let equals =
-        lift3
-          (fun a _ b -> Ast.equals a b)
-          term
-          (whitespace *> char '=' *> whitespace)
-          term
-      in
-      let mnot = char '~' *> whitespace *> formula >>| Ast.mnot in
-      let exists =
-        char 'E'
-        *> lift2 (fun a b -> Ast.exists a b) varname (whitespace *> formula)
-      in
-      let any =
-        char 'A'
-        *> lift2 (fun a b -> Ast.any a b) varname (whitespace *> formula)
-      in
-      let aformula =
-        parens formula <|> exists <|> any <|> mnot <|> equals <|> pred
-      in
-      let aformula2 = chainl1 aformula mand in
-      let aformula3 = chainl1 aformula2 mor in
-      chainl1 aformula3 mimpl )
+    let formula1 = parens formula <|> aformula
+      |> opt (un_op "~" Ast.mnot)
+      |> bin_op "&" Ast.mand
+      |> bin_op "|" Ast.mor
+      |> bin_op "->" Ast.mimpl
+      |> bin_op "<->" Ast.miff in
+    quantifier 'A' Ast.any formula <|>
+    quantifier 'E' Ast.exists formula <|>
+    formula1)
 
-let eval = string "eval" *> whitespace *> formula <* char ';' >>| Ast.eval
-
-let dump = string "dump" *> whitespace *> formula <* char ';' >>| Ast.dump
-
-let def_params =
-  fix (fun def_params ->
-      lift2 (fun a b -> List.cons a b) (whitespace *> varname) def_params
-      <|> return [] )
+let kw kw ast = 
+  string kw *> whitespace *> return ast
+let kw1 kw ast p1 =
+  let* _ = string kw <* whitespace in
+  let* p1 = p1 in
+  ast p1 |> return
+let kw2 kw ast p1 p2 =
+  let* _ = string kw <* whitespace in
+  let* p1 = p1 in
+  ast p1 p2
+let kw3 kw ast p1 p2 p3 =
+  let* _ = string kw <* whitespace in
+  let* p1 = p1 in
+  let* p2 = p2 in
+  let* p3 = p3 in
+  ast p1 p2 p3 |> return
 
 let def =
-  lift3
-    (fun n p f -> Ast.def n p f)
-    (string "def" *> whitespace *> predname)
-    def_params
-    (whitespace *> char ':' *> whitespace *> formula <* char ';')
+  let* name = string "let" *> whitespace *> ident <* whitespace in
+  let* params = many (whitespace *> ident) in
+  let* body = whitespace *> char '=' *> whitespace *> formula in 
+  Ast.def name params body |> return
 
-let stmt = eval <|> def <|> dump <|> fail "Unknown statement kind"
+let stmt = 
+  kw1 "eval" Ast.eval formula <|>
+  kw3 "let" Ast.def (ident <* whitespace) (many (whitespace *> ident)) (whitespace *> char '=' *> whitespace *> formula) <|>
+  kw1 "dump" Ast.dump formula <|>
+  kw1 "parse" Ast.parse formula <|>
+  kw "list" (Ast.list ()) <|>
+  kw "help" (Ast.help ())
 
 let parse_formula str = parse_string ~consume:All formula str
 

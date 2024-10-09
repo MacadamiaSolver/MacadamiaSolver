@@ -14,11 +14,17 @@ type term =
 
 type formula =
   | Pred of predname * term list
-  | Equals of term * term
+  | Eq of term * term
+  | Neq of term * term
+  | Lt of term * term
+  | Gt of term * term
+  | Leq of term * term
+  | Geq of term * term
   | Mnot of formula
   | Mand of formula * formula
   | Mor of formula * formula
   | Mimpl of formula * formula
+  | Miff of formula * formula
   | Exists of varname * formula
   | Any of varname * formula
 
@@ -26,6 +32,9 @@ type stmt =
   | Def of string * varname list * formula
   | Eval of formula
   | Dump of formula
+  | Parse of formula
+  | List
+  | Help
 
 val var : varname -> term
 
@@ -37,7 +46,17 @@ val mul : int -> term -> term
 
 val pred : predname -> term list -> formula
 
-val equals : term -> term -> formula
+val eq : term -> term -> formula
+
+val neq : term -> term -> formula
+
+val lt : term -> term -> formula
+
+val gt : term -> term -> formula
+
+val leq : term -> term -> formula
+
+val geq : term -> term -> formula
 
 val mnot : formula -> formula
 
@@ -46,6 +65,8 @@ val mand : formula -> formula -> formula
 val mor : formula -> formula -> formula
 
 val mimpl : formula -> formula -> formula
+
+val miff : formula -> formula -> formula
 
 val exists : varname -> formula -> formula
 
@@ -57,8 +78,13 @@ val eval : formula -> stmt
 
 val dump : formula -> stmt
 
-val string_of_term : term -> string
+val parse : formula -> stmt
 
-val string_of_formula : formula -> string
+val list : unit -> stmt
 
-val string_of_stmt : stmt -> string
+val help : unit -> stmt
+
+val pp_term : Format.formatter -> term -> unit
+
+val pp_formula : Format.formatter -> formula -> unit
+
