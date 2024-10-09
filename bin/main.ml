@@ -3,7 +3,7 @@
 (** SPDX-License-Identifier: MIT *)
 
 open Lib
-module Map = Nfa.Map
+module Map = Dfa.Map
 module Set = Base.Set.Poly
 open Format
 
@@ -19,30 +19,30 @@ let format_atom ppf = function
   | Internal a ->
       fprintf ppf "Internal %d" a
 
-let nfa_unit = NfaCollection.Neutral.n () |> Nfa.to_nfa
-
-(* let nfa_zero = NfaCollection.Neutral.z () |> Nfa.to_nfa *)
+(* let dbg x = *)
+(*   x |> Format.printf "Debug: %a\n" (Dfa.format format_atom); *)
+(*   x *)
 
 let rec teval = function
   | Ast.Var a ->
-      (Var a, nfa_unit)
+      (Var a, DfaCollection.any ())
   | Ast.Const a ->
       let res = Internal (Oo.id (object end)) in
-      (res, NfaCollection.Eq.eq_const res a |> Nfa.to_nfa)
+      (res, DfaCollection.eq_const res a)
   | Ast.Add (l, r) ->
       let lv, la = teval l in
       let rv, ra = teval r in
       let res = Internal (Oo.id (object end)) in
       ( res
-      , NfaCollection.Add.add ~lhs:lv ~rhs:rv ~sum:res
-        |> Nfa.to_nfa |> Nfa.intersect la |> Nfa.intersect ra
-        |> Nfa.remove_unreachable )
+      , DfaCollection.add ~lhs:lv ~rhs:rv ~sum:res
+        |> Dfa.intersect la |> Dfa.intersect ra
+        |> Dfa.project (function Var _ | Const _ -> true | t -> t = res) )
   | Ast.Mul (a, b) ->
       let rec teval_mul a b =
         match a with
           | 0 ->
               let res = Internal (Oo.id (object end)) in
-              (res, NfaCollection.Eq.eq_const res 0 |> Nfa.to_nfa)
+              (res, DfaCollection.eq_const res 0)
           | 1 ->
               teval b
           | _ -> (
@@ -51,17 +51,25 @@ let rec teval = function
                   let tv, ta = teval_mul (a / 2) b in
                   let res = Internal (Oo.id (object end)) in
                   ( res
-                  , NfaCollection.Add.add ~lhs:tv ~rhs:tv ~sum:res
-                    |> Nfa.to_nfa |> Nfa.intersect ta |> Nfa.remove_unreachable
-                  )
+                  , DfaCollection.add ~lhs:tv ~rhs:tv ~sum:res
+                    |> Dfa.intersect ta
+                    |> Dfa.project (function
+                         | Var _ | Const _ ->
+                             true
+                         | t ->
+                             t = res ) )
               | 1 ->
                   let tv, ta = teval_mul (a - 1) b in
                   let uv, ua = teval b in
                   let res = Internal (Oo.id (object end)) in
                   ( res
-                  , NfaCollection.Add.add ~lhs:tv ~rhs:uv ~sum:res
-                    |> Nfa.to_nfa |> Nfa.intersect ta |> Nfa.intersect ua
-                    |> Nfa.remove_unreachable )
+                  , DfaCollection.add ~lhs:tv ~rhs:uv ~sum:res
+                    |> Dfa.intersect ta |> Dfa.intersect ua
+                    |> Dfa.project (function
+                         | Var _ | Const _ ->
+                             true
+                         | t ->
+                             t = res ) )
               | _ ->
                   assert false )
       in
@@ -71,15 +79,13 @@ let rec eval state = function
   | Ast.Equals (l, r) ->
       let lv, la = teval l in
       let rv, ra = teval r in
-      NfaCollection.Eq.eq lv rv |> Nfa.to_nfa |> Nfa.intersect la
-      |> Nfa.intersect ra
-      |> Nfa.project (function Var _ | Const _ -> true | Internal _ -> false)
-      |> Nfa.remove_unreachable |> Result.ok
+      DfaCollection.eq lv rv |> Dfa.intersect la |> Dfa.intersect ra
+      |> Dfa.project (function Var _ | Const _ -> true | Internal _ -> false)
+      |> Result.ok
   | Ast.Mnot f -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable |> Result.ok
+          v |> Dfa.minimize |> Dfa.invert |> Dfa.remove_unreachable |> Result.ok
       | _ as a ->
           a )
   | Ast.Mand (f1, f2) -> (
@@ -87,7 +93,7 @@ let rec eval state = function
       let rr = eval state f2 in
       match (lr, rr) with
         | Ok la, Ok ra ->
-            Nfa.intersect la ra |> Result.ok
+            Dfa.intersect la ra |> Result.ok
         | Error _, _ ->
             lr
         | _ ->
@@ -97,7 +103,17 @@ let rec eval state = function
       let rr = eval state f2 in
       match (lr, rr) with
         | Ok la, Ok ra ->
-            Nfa.unite la ra |> Result.ok
+            Dfa.union la ra |> Result.ok
+        | Error _, _ ->
+            lr
+        | _ ->
+            rr )
+  | Ast.Mimpl (f1, f2) -> (
+      let lr = eval state f1 in
+      let rr = eval state f2 in
+      match (lr, rr) with
+        | Ok la, Ok ra ->
+            Dfa.union (Dfa.invert la) ra |> Result.ok
         | Error _, _ ->
             lr
         | _ ->
@@ -105,18 +121,15 @@ let rec eval state = function
   | Ast.Exists (x, f) -> (
     match eval state f with
       | Ok a ->
-          Nfa.project (( <> ) (Var x)) a
-          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.to_nfa |> Result.ok
+          a |> Dfa.project (( <> ) (Var x)) |> Result.ok
       | _ as a ->
           a )
   | Ast.Any (x, f) -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable
-          |> Nfa.project (( <> ) (Var x))
-          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable |> Result.ok
+          v |> Dfa.minimize |> Dfa.invert |> Dfa.remove_unreachable
+          |> Dfa.project (( <> ) (Var x))
+          |> Dfa.invert |> Dfa.remove_unreachable |> Result.ok
       | _ as a ->
           a )
   | Ast.Pred (name, args) -> (
@@ -125,7 +138,7 @@ let rec eval state = function
         | Some (_, pred_params, pred_nfa) ->
             let nfa =
               pred_nfa
-              |> Nfa.map_varname (function
+              |> Dfa.map_varname (function
                    | Var s -> (
                      match List.find_index (( = ) s) pred_params with
                        | Some i -> (
@@ -139,9 +152,9 @@ let rec eval state = function
                    | x ->
                        x )
               |> List.fold_right
-                   (fun acc a -> Nfa.intersect acc a)
+                   (fun acc a -> Dfa.intersect acc a)
                    (List.map (fun (_, arg) -> arg) args)
-              |> Nfa.project (function
+              |> Dfa.project (function
                    | Var _ | Const _ ->
                        true
                    | Internal _ ->
@@ -150,15 +163,13 @@ let rec eval state = function
             Result.ok nfa
         | None ->
             Printf.sprintf "Unknown predicate %s" name |> Result.error )
-  | _ ->
-      Result.error "unimplemented"
 
 let exec state line = function
   | Ast.Eval f -> (
       let res = eval state f in
       match res with
-        | Ok nfa ->
-            let res = Nfa.run_nfa nfa [] in
+        | Ok dfa ->
+            let res = Dfa.run dfa [] in
             Format.printf "Result: %b\n\n" res;
             state
         | Error msg ->
@@ -171,7 +182,7 @@ let exec state line = function
             let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in
             let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in
             let oc = open_out (Format.sprintf "dumps/%s.dot" line) in
-            let out = Format.asprintf "%a" (Nfa.format_nfa format_atom) nfa in
+            let out = Format.asprintf "%a" (Dfa.format format_atom) nfa in
             let command =
               Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s"
                 dot_file svg_file svg_file

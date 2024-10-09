@@ -6,12 +6,7 @@ module Sequence = Base.Sequence
 
 type bit = Bits.bit
 
-type _ nfa =
-  | Nfa :
-      { transitions: ('state, (('var, bit) Map.t * 'state) Set.t) Map.t
-      ; final: 'state Set.t
-      ; start: 'state Set.t }
-      -> 'var nfa
+let ( let* ) = Option.bind
 
 let get_extended_final_states transitions final =
   let reversed_transitions =
@@ -44,23 +39,6 @@ let get_extended_final_states transitions final =
   in
   final |> Set.to_list |> helper Set.empty
 
-let update_final_states_nfa (Nfa nfa) =
-  Nfa
-    { transitions= nfa.transitions
-    ; start= nfa.start
-    ; final= nfa.final |> get_extended_final_states nfa.transitions }
-
-let create_nfa ~(transitions : ('s * ('var, bit) Map.t * 's) list)
-    ~(start : 's list) ~(final : 's list) =
-  Nfa
-    { transitions=
-        transitions
-        |> List.map (fun (a, b, c) -> (a, (b, c)))
-        |> Map.of_alist_multi |> Map.map ~f:Set.of_list
-    ; final= Set.of_list final
-    ; start= Set.of_list start }
-  |> update_final_states_nfa
-
 let matches (mask : ('a, 'b) Map.t) (map : ('a, 'b) Map.t) : bool =
   Map.fold2 mask map ~init:true ~f:(fun ~key ~data acc ->
       let _ = key in
@@ -84,47 +62,6 @@ let rec reachable_from transitions cur =
   if next |> Set.is_subset ~of_:cur then cur
   else reachable_from transitions @@ Set.union cur next
 
-let run_nfa (Nfa nfa) str =
-  let rec helper str states =
-    match str with
-      | [] ->
-          Set.are_disjoint states nfa.final |> not
-      | h :: tl ->
-          states |> Set.to_list
-          |> List.map (fun state ->
-                 Map.find nfa.transitions state
-                 |> Base.Option.value ~default:Set.empty
-                 |> Set.filter_map ~f:(fun (mask, state) ->
-                        if matches mask h then Some state else None ) )
-          |> Set.union_list |> helper tl
-  in
-  helper str nfa.start
-
-let ( let* ) = Option.bind
-
-let map_varname f (Nfa nfa) =
-  Nfa
-    { final= nfa.final
-    ; start= nfa.start
-    ; transitions=
-        Map.map nfa.transitions
-          ~f:
-            (Set.filter_map ~f:(fun (transitions, state) ->
-                 let* transitions =
-                   transitions |> Map.to_sequence
-                   |> Sequence.map ~f:(fun (a, b) -> (f a, b))
-                   |> Map.of_sequence_multi
-                   |> Map.map ~f:(function
-                        | [] ->
-                            None
-                        | h :: tl ->
-                            if tl |> List.for_all (( = ) h) then Some h
-                            else None )
-                   |> option_map_to_map_option
-                 in
-                 Some (transitions, state) ) ) }
-  |> update_final_states_nfa
-
 let cartesian_product l1 l2 =
   Base.Sequence.cartesian_product (Set.to_sequence l1) (Set.to_sequence l2)
   |> Set.of_sequence
@@ -142,73 +79,6 @@ let combine mask1 mask2 =
               if a = b then Some a else None ) )
   |> option_map_to_map_option
 
-let remove_unreachable (Nfa nfa) =
-  let transitions = nfa.transitions |> Map.map ~f:(Set.map ~f:snd) in
-  let reachable = reachable_from transitions nfa.start in
-  Nfa
-    { start= nfa.start
-    ; final= Set.inter nfa.final reachable
-    ; transitions=
-        nfa.transitions
-        |> Map.filter_keys ~f:(Set.mem reachable)
-        |> Map.map ~f:(Set.filter ~f:(fun (_, state) -> Set.mem reachable state))
-    }
-
-let intersect (Nfa nfa1) (Nfa nfa2) =
-  Nfa
-    { final= cartesian_product nfa1.final nfa2.final
-    ; start= cartesian_product nfa1.start nfa2.start
-    ; transitions=
-        Base.Sequence.cartesian_product
-          (Map.to_sequence nfa1.transitions)
-          (Map.to_sequence nfa2.transitions)
-        |> Base.Sequence.filter_map ~f:(fun ((src1, list1), (src2, list2)) ->
-               let set =
-                 cartesian_product list1 list2
-                 |> Set.filter_map ~f:(fun ((mask1, state1), (mask2, state2)) ->
-                        let* mask = combine mask1 mask2 in
-                        Some (mask, (state1, state2)) )
-               in
-               if Set.is_empty set then None else Some ((src1, src2), set) )
-        |> Map.of_sequence_reduce ~f:Set.union }
-  |> update_final_states_nfa
-
-let unite (Nfa nfa1) (Nfa nfa2) =
-  let start =
-    Set.union
-      (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.start)
-      (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.start)
-  in
-  let final =
-    Set.union
-      (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.final)
-      (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.final)
-  in
-  let transitions =
-    Map.merge
-      ( Map.to_sequence nfa1.transitions
-      |> Sequence.map ~f:(fun (q1, s) ->
-             ( (Option.some q1, Option.none)
-             , Set.map ~f:(fun (a, q2) -> (a, (Option.some q2, Option.none))) s
-             ) )
-      |> Map.of_sequence_reduce ~f:Set.union )
-      ( Map.to_sequence nfa2.transitions
-      |> Sequence.map ~f:(fun (q1, s) ->
-             ( (Option.none, Option.some q1)
-             , Set.map ~f:(fun (a, q2) -> (a, (Option.none, Option.some q2))) s
-             ) )
-      |> Map.of_sequence_reduce ~f:Set.union )
-      ~f:(fun ~key:_ data ->
-        match data with
-          | `Left a ->
-              Some a
-          | `Right a ->
-              Some a
-          | `Both _ ->
-              assert false )
-  in
-  Nfa {start; final; transitions} |> update_final_states_nfa
-
 let format_bitmap format_var ppf bitmap =
   let format_bit ppf = function
     | Bits.O ->
@@ -219,36 +89,137 @@ let format_bitmap format_var ppf bitmap =
   Map.iteri bitmap ~f:(fun ~key ~data ->
       fprintf ppf "%a=%a\\n" format_var key format_bit data )
 
-let format_nfa format_var ppf (Nfa nfa) =
-  let format_bitmap = format_bitmap format_var in
-  let states =
-    [nfa.final; nfa.start; Map.keys nfa.transitions |> Set.of_list]
-    @ (Map.data nfa.transitions |> List.map (Set.map ~f:snd))
-    |> Set.union_list
-  in
-  let int_of_state =
-    states |> Set.to_list |> List.mapi (fun a b -> (b, a)) |> Map.of_alist_exn
-  in
-  let format_state ppf state =
-    fprintf ppf "%d" (Map.find_exn int_of_state state)
-  in
-  let states = Set.diff states nfa.final in
-  let states = Set.diff states nfa.start in
-  let start_final = Set.inter nfa.start nfa.final in
-  let start = Set.diff nfa.start start_final in
-  let final = Set.diff nfa.final start_final in
-  fprintf ppf "digraph {\n";
-  Set.iter states ~f:(fprintf ppf "\"%a\" [shape=circle]\n" format_state);
-  Set.iter final ~f:(fprintf ppf "\"%a\" [shape=doublecircle]\n" format_state);
-  Set.iter start ~f:(fprintf ppf "\"%a\" [shape=octagon]\n" format_state);
-  Set.iter start_final
-    ~f:(fprintf ppf "\"%a\" [shape=doubleoctagon]\n" format_state);
-  Map.iteri nfa.transitions ~f:(fun ~key ~data ->
-      data
-      |> Set.iter ~f:(fun (bitmap, dst) ->
-             fprintf ppf "\"%a\" -> \"%a\" [label=\"%a\"]\n" format_state key
-               format_state dst format_bitmap bitmap ) );
-  fprintf ppf "}"
+let ( -- ) i j =
+  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
+  aux j []
+
+let rec pow a = function
+  | 0 ->
+      1
+  | 1 ->
+      a
+  | n ->
+      let b = pow a (n / 2) in
+      b * b * if n mod 2 = 0 then 1 else a
+
+module Nfa = struct
+  type _ nfa =
+    | Nfa :
+        { transitions: ('state, (('var, bit) Map.t * 'state) Set.t) Map.t
+        ; final: 'state Set.t
+        ; start: 'state Set.t }
+        -> 'var nfa
+
+  let update_final_states (Nfa nfa) =
+    Nfa
+      { transitions= nfa.transitions
+      ; start= nfa.start
+      ; final= nfa.final |> get_extended_final_states nfa.transitions }
+
+  let create ~(transitions : ('s * ('var, bit) Map.t * 's) list)
+      ~(start : 's list) ~(final : 's list) =
+    Nfa
+      { transitions=
+          transitions
+          |> List.map (fun (a, b, c) -> (a, (b, c)))
+          |> Map.of_alist_multi |> Map.map ~f:Set.of_list
+      ; final= Set.of_list final
+      ; start= Set.of_list start }
+    |> update_final_states
+
+  (* let run (Nfa nfa) str = *)
+  (*   let rec helper str states = *)
+  (*     match str with *)
+  (*       | [] -> *)
+  (*           Set.are_disjoint states nfa.final |> not *)
+  (*       | h :: tl -> *)
+  (*           states |> Set.to_list *)
+  (*           |> List.map (fun state -> *)
+  (*                  Map.find nfa.transitions state *)
+  (*                  |> Base.Option.value ~default:Set.empty *)
+  (*                  |> Set.filter_map ~f:(fun (mask, state) -> *)
+  (*                         if matches mask h then Some state else None ) ) *)
+  (*           |> Set.union_list |> helper tl *)
+  (*   in *)
+  (*   helper str nfa.start *)
+
+  let map_varname f (Nfa nfa) =
+    Nfa
+      { final= nfa.final
+      ; start= nfa.start
+      ; transitions=
+          Map.map nfa.transitions
+            ~f:
+              (Set.filter_map ~f:(fun (transitions, state) ->
+                   let* transitions =
+                     transitions |> Map.to_sequence
+                     |> Sequence.map ~f:(fun (a, b) -> (f a, b))
+                     |> Map.of_sequence_multi
+                     |> Map.map ~f:(function
+                          | [] ->
+                              None
+                          | h :: tl ->
+                              if tl |> List.for_all (( = ) h) then Some h
+                              else None )
+                     |> option_map_to_map_option
+                   in
+                   Some (transitions, state) ) ) }
+    |> update_final_states
+
+  let union (Nfa nfa1) (Nfa nfa2) =
+    let start =
+      Set.union
+        (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.start)
+        (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.start)
+    in
+    let final =
+      Set.union
+        (Set.map ~f:(fun q -> (Option.some q, Option.none)) nfa1.final)
+        (Set.map ~f:(fun q -> (Option.none, Option.some q)) nfa2.final)
+    in
+    let transitions =
+      Map.merge
+        ( Map.to_sequence nfa1.transitions
+        |> Sequence.map ~f:(fun (q1, s) ->
+               ( (Option.some q1, Option.none)
+               , Set.map
+                   ~f:(fun (a, q2) -> (a, (Option.some q2, Option.none)))
+                   s ) )
+        |> Map.of_sequence_reduce ~f:Set.union )
+        ( Map.to_sequence nfa2.transitions
+        |> Sequence.map ~f:(fun (q1, s) ->
+               ( (Option.none, Option.some q1)
+               , Set.map
+                   ~f:(fun (a, q2) -> (a, (Option.none, Option.some q2)))
+                   s ) )
+        |> Map.of_sequence_reduce ~f:Set.union )
+        ~f:(fun ~key:_ data ->
+          match data with
+            | `Left a ->
+                Some a
+            | `Right a ->
+                Some a
+            | `Both _ ->
+                assert false )
+    in
+    Nfa {start; final; transitions} |> update_final_states
+
+  let project f (Nfa nfa) =
+    Nfa
+      { final= nfa.final
+      ; start= nfa.start
+      ; transitions=
+          nfa.transitions
+          |> Map.filter_map ~f:(fun set ->
+                 let set =
+                   set
+                   |> Set.map ~f:(fun (mask, state) ->
+                          let mask = Map.filter_keys mask ~f in
+                          (mask, state) )
+                 in
+                 if Set.is_empty set then None else Some set ) }
+    |> update_final_states
+end
 
 type _ dfa =
   | Dfa :
@@ -257,63 +228,13 @@ type _ dfa =
       ; start: 'state }
       -> 'var dfa
 
-let update_final_states_dfa (Dfa dfa) =
+let update_final_states (Dfa dfa) =
   Dfa
     { transitions= dfa.transitions
     ; start= dfa.start
     ; final= dfa.final |> get_extended_final_states dfa.transitions }
 
-let _subsets set =
-  let rec helper acc = function
-    | [] ->
-        acc
-    | h :: tl ->
-        helper (acc @ List.map (fun x -> h :: x) acc) tl
-  in
-  set |> Set.elements |> helper [[]] |> List.map Set.of_list |> Set.of_list
-
-let check_maps_collisions map1 map2 =
-  Map.fold2 map1 map2 ~init:true ~f:(fun ~key ~data acc ->
-      let _ = key in
-      acc
-      &&
-      match data with
-        | `Left _ ->
-            true
-        | `Right _ ->
-            true
-        | `Both (a, b) ->
-            a = b )
-
-let transitions_collisions transitions =
-  Map.to_sequence transitions
-  |> Sequence.concat_map ~f:(fun (state, maps) ->
-         let maps = maps |> Set.to_sequence in
-         Sequence.cartesian_product maps maps
-         |> Sequence.filter ~f:(fun ((b1, s1), (b2, s2)) ->
-                s1 != s2 && check_maps_collisions b1 b2 )
-         |> Sequence.map ~f:(fun ((a, s1), (b, s2)) -> (state, a, b, s1, s2)) )
-  |> Sequence.to_list
-
-type ('state, 'varname) dfaCollisions =
-  ('state * ('varname, bit) Map.t * ('varname, bit) Map.t * 'state * 'state)
-  list
-
-let create_dfa ~(transitions : ('s * ('var, bit) Map.t * 's) list) ~(start : 's)
-    ~(final : 's list) =
-  let transitions =
-    transitions
-    |> List.map (fun (a, b, c) -> (a, (b, c)))
-    |> Map.of_alist_multi |> Map.map ~f:Set.of_list
-  in
-  let collisions = transitions_collisions transitions in
-  if List.is_empty collisions then
-    Ok
-      ( Dfa {transitions; final= Set.of_list final; start}
-      |> update_final_states_dfa )
-  else Error collisions
-
-let run_dfa (Dfa dfa) str =
+let run (Dfa dfa) str =
   let rec helper str state =
     match str with
       | [] ->
@@ -336,23 +257,10 @@ let run_dfa (Dfa dfa) str =
   helper str dfa.start
 
 let to_nfa (Dfa dfa) =
-  Nfa
+  Nfa.Nfa
     { final= dfa.final
     ; start= Set.singleton dfa.start
     ; transitions= dfa.transitions }
-
-let ( -- ) i j =
-  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
-  aux j []
-
-let rec pow a = function
-  | 0 ->
-      1
-  | 1 ->
-      a
-  | n ->
-      let b = pow a (n / 2) in
-      b * b * if n mod 2 = 0 then 1 else a
 
 let labels_differ l1 l2 =
   Map.existsi
@@ -362,7 +270,7 @@ let labels_differ l1 l2 =
 
 let labels_same l1 l2 = labels_differ l1 l2 |> not
 
-let to_dfa (Nfa nfa) =
+let to_dfa (Nfa.Nfa nfa) =
   let rec aux mqs transitions =
     match mqs with
       | [] ->
@@ -445,6 +353,25 @@ let to_dfa (Nfa nfa) =
   in
   Dfa {final; start= nfa.start; transitions}
 
+let intersect (Dfa nfa1) (Dfa nfa2) =
+  Dfa
+    { final= cartesian_product nfa1.final nfa2.final
+    ; start= (nfa1.start, nfa2.start)
+    ; transitions=
+        Base.Sequence.cartesian_product
+          (Map.to_sequence nfa1.transitions)
+          (Map.to_sequence nfa2.transitions)
+        |> Base.Sequence.filter_map ~f:(fun ((src1, list1), (src2, list2)) ->
+               let set =
+                 cartesian_product list1 list2
+                 |> Set.filter_map ~f:(fun ((mask1, state1), (mask2, state2)) ->
+                        let* mask = combine mask1 mask2 in
+                        Some (mask, (state1, state2)) )
+               in
+               if Set.is_empty set then None else Some ((src1, src2), set) )
+        |> Map.of_sequence_reduce ~f:Set.union }
+  |> update_final_states
+
 let minimize (Dfa dfa) =
   let states =
     [dfa.final; Set.singleton dfa.start; Map.keys dfa.transitions |> Set.of_list]
@@ -521,6 +448,10 @@ let minimize (Dfa dfa) =
   in
   Dfa {start; final; transitions}
 
+let create ~(transitions : ('s * ('var, bit) Map.t * 's) list) ~(start : 's)
+    ~(final : 's list) =
+  Nfa.create ~transitions ~start:[start] ~final |> to_dfa
+
 let invert (Dfa dfa) =
   let states =
     [dfa.final; Set.singleton dfa.start; Map.keys dfa.transitions |> Set.of_list]
@@ -530,25 +461,61 @@ let invert (Dfa dfa) =
   let final = Set.diff states dfa.final in
   Dfa {final; start= dfa.start; transitions= dfa.transitions}
 
-let is_graph (Nfa nfa) =
-  nfa.transitions
+let project f dfa = dfa |> to_nfa |> Nfa.project f |> to_dfa |> minimize
+
+let union dfa1 dfa2 =
+  Nfa.union (to_nfa dfa1) (to_nfa dfa2) |> to_dfa |> minimize
+
+let map_varname f dfa = dfa |> to_nfa |> Nfa.map_varname f |> to_dfa |> minimize
+
+let format format_var ppf (Dfa dfa) =
+  let format_bitmap = format_bitmap format_var in
+  let start = Set.singleton dfa.start in
+  let states =
+    [dfa.final; start; Map.keys dfa.transitions |> Set.of_list]
+    @ (Map.data dfa.transitions |> List.map (Set.map ~f:snd))
+    |> Set.union_list
+  in
+  let int_of_state =
+    states |> Set.to_list |> List.mapi (fun a b -> (b, a)) |> Map.of_alist_exn
+  in
+  let format_state ppf state =
+    fprintf ppf "%d" (Map.find_exn int_of_state state)
+  in
+  let states = Set.diff states dfa.final in
+  let states = Set.diff states start in
+  let start_final = Set.inter start dfa.final in
+  let start = Set.diff start start_final in
+  let final = Set.diff dfa.final start_final in
+  fprintf ppf "digraph {\n";
+  Set.iter states ~f:(fprintf ppf "\"%a\" [shape=circle]\n" format_state);
+  Set.iter final ~f:(fprintf ppf "\"%a\" [shape=doublecircle]\n" format_state);
+  Set.iter start ~f:(fprintf ppf "\"%a\" [shape=octagon]\n" format_state);
+  Set.iter start_final
+    ~f:(fprintf ppf "\"%a\" [shape=doubleoctagon]\n" format_state);
+  Map.iteri dfa.transitions ~f:(fun ~key ~data ->
+      data
+      |> Set.iter ~f:(fun (bitmap, dst) ->
+             fprintf ppf "\"%a\" -> \"%a\" [label=\"%a\"]\n" format_state key
+               format_state dst format_bitmap bitmap ) );
+  fprintf ppf "}"
+
+let is_graph (Dfa dfa) =
+  dfa.transitions
   |> Map.for_all ~f:(Set.for_all ~f:(fun x -> x |> fst |> Map.is_empty))
 
-let project f (Nfa nfa) =
-  Nfa
-    { final= nfa.final
-    ; start= nfa.start
+let remove_unreachable (Dfa dfa) =
+  let transitions = dfa.transitions |> Map.map ~f:(Set.map ~f:snd) in
+  let reachable = reachable_from transitions (Set.singleton dfa.start) in
+  Dfa
+    { start= dfa.start
+    ; final= Set.inter dfa.final reachable
     ; transitions=
-        nfa.transitions
-        |> Map.filter_map ~f:(fun set ->
-               let set =
-                 set
-                 |> Set.map ~f:(fun (mask, state) ->
-                        let mask = Map.filter_keys mask ~f in
-                        (mask, state) )
-               in
-               if Set.is_empty set then None else Some set ) }
-  |> update_final_states_nfa
+        dfa.transitions
+        |> Map.filter_keys ~f:(Set.mem reachable)
+        |> Map.map ~f:(Set.filter ~f:(fun (_, state) -> Set.mem reachable state))
+    }
+
 (*in
   match is_graph nfa with
     | true -> (

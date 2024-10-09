@@ -6,10 +6,6 @@ open Angstrom
 
 let ( << ) f g x = f (g x)
 
-let is_name = function 'a' .. 'z' -> true | '_' -> true | _ -> false
-
-let name = take_while1 is_name
-
 let is_whitespace = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
 
 let whitespace = take_while is_whitespace
@@ -18,15 +14,9 @@ let is_digit = function '0' .. '9' -> true | _ -> false
 
 let const = take_while1 is_digit >>| (Ast.const << int_of_string)
 
-let is_smallchar = function 'a' .. 'z' -> true | _ -> false
+let is_idchar = function 'a' .. 'z' | 'A' .. 'Z' | '_' | '0' .. '9' -> true | _ -> false
 
-let is_bigchar = function 'A' .. 'Z' -> true | _ -> false
-
-let varname =
-  lift2
-    (fun a b -> String.make 1 a ^ b)
-    (satisfy is_smallchar) (take_while is_digit)
-
+let varname = take_while1 is_idchar
 let var = varname >>| Ast.var
 
 let integer = take_while1 is_digit >>| int_of_string
@@ -56,14 +46,12 @@ let mor = whitespace *> char '|' *> whitespace *> return Ast.mor
 
 let mimpl = whitespace *> string "->" *> whitespace *> return Ast.mimpl
 
-let equals = whitespace *> char '=' *> whitespace *> return Ast.equals
-
 let pred_params =
   fix (fun pred_params ->
       lift2 (fun a b -> List.cons a b) (whitespace *> term) pred_params
       <|> return [] )
 
-let predname = take_while1 is_bigchar
+let predname = take_while1 is_idchar
 
 let pred =
   lift2
@@ -71,34 +59,32 @@ let pred =
     (predname <* whitespace)
     (char '(' *> pred_params <* whitespace <* char ')')
 
+let equals =
+  lift3
+    (fun a _ b -> Ast.equals a b)
+    term
+    (whitespace *> char '=' *> whitespace)
+    term
+
+let mnot aformula = char '~' *> whitespace *> aformula >>| Ast.mnot
+
+let exists formula =
+  char 'E' *> lift2 (fun a b -> Ast.exists a b) varname (whitespace *> formula)
+
+let any formula = char 'A' *> lift2 (fun a b -> Ast.any a b) varname (whitespace *> formula)
+
 let formula =
   fix (fun formula ->
-      let equals =
-        lift3
-          (fun a _ b -> Ast.equals a b)
-          term
-          (whitespace *> char '=' *> whitespace)
-          term
-      in
-      let mnot = char '~' *> whitespace *> formula >>| Ast.mnot in
-      let exists =
-        char 'E'
-        *> lift2 (fun a b -> Ast.exists a b) varname (whitespace *> formula)
-      in
-      let any =
-        char 'A'
-        *> lift2 (fun a b -> Ast.any a b) varname (whitespace *> formula)
-      in
-      let aformula =
-        parens formula <|> exists <|> any <|> mnot <|> equals <|> pred
-      in
-      let aformula2 = chainl1 aformula mand in
+      let aformula = parens formula <|> equals <|> pred in
+      let aformula1 = mnot aformula <|> aformula in
+      let aformula2 = chainl1 aformula1 mand in
       let aformula3 = chainl1 aformula2 mor in
-      chainl1 aformula3 mimpl )
+      let aformula4 = chainl1 aformula3 mimpl in
+      exists formula <|> any formula <|> aformula4)
 
-let eval = string "eval" *> whitespace *> formula <* char ';' >>| Ast.eval
+let eval = string "eval" *> whitespace *> formula >>| Ast.eval
 
-let dump = string "dump" *> whitespace *> formula <* char ';' >>| Ast.dump
+let dump = string "dump" *> whitespace *> formula >>| Ast.dump
 
 let def_params =
   fix (fun def_params ->
@@ -108,9 +94,9 @@ let def_params =
 let def =
   lift3
     (fun n p f -> Ast.def n p f)
-    (string "def" *> whitespace *> predname)
+    (string "let" *> whitespace *> predname)
     def_params
-    (whitespace *> char ':' *> whitespace *> formula <* char ';')
+    (whitespace *> char '=' *> whitespace *> formula)
 
 let stmt = eval <|> def <|> dump <|> fail "Unknown statement kind"
 

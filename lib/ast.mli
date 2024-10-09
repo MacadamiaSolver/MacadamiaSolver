@@ -59,6 +59,10 @@ val dump : formula -> stmt
 
 val string_of_term : term -> string
 
+val pp_term : Format.formatter -> term -> unit
+
 val string_of_formula : formula -> string
+
+val pp_formula : Format.formatter -> formula -> unit
 
 val string_of_stmt : stmt -> string

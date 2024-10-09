@@ -67,6 +67,8 @@ let rec string_of_term = function
   | Mul (a, b) ->
       "(Mul " ^ string_of_int a ^ " " ^ string_of_term b ^ ")"
 
+let pp_term fmt f = Format.pp_print_string fmt (string_of_term f)
+
 let rec string_of_formula = function
   | Pred (a, b) ->
       "(Pred " ^ a ^ " " ^ String.concat " " (List.map string_of_term b) ^ ")"
@@ -84,6 +86,8 @@ let rec string_of_formula = function
       "(Exists " ^ x ^ " " ^ string_of_formula a ^ ")"
   | Any (x, a) ->
       "(Any " ^ x ^ " " ^ string_of_formula a ^ ")"
+
+let pp_formula fmt f = Format.pp_print_string fmt (string_of_formula f)
 
 let string_of_stmt = function
   | Eval f ->
