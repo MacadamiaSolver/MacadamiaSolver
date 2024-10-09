@@ -71,17 +71,15 @@ let rec eval state = function
   | Ast.Equals (l, r) ->
       let lv, la = teval l in
       let rv, ra = teval r in
-      NfaCollection.Eq.eq lv rv
-      |> Nfa.to_nfa 
-      |> Nfa.intersect la
+      NfaCollection.Eq.eq lv rv |> Nfa.to_nfa |> Nfa.intersect la
       |> Nfa.intersect ra
       |> Nfa.project (function Var _ | Const _ -> true | Internal _ -> false)
       |> Nfa.remove_unreachable |> Result.ok
   | Ast.Mnot f -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
-          |> Result.ok
+          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
+          |> Nfa.remove_unreachable |> Result.ok
       | _ as a ->
           a )
   | Ast.Mand (f1, f2) -> (
@@ -107,16 +105,18 @@ let rec eval state = function
   | Ast.Exists (x, f) -> (
     match eval state f with
       | Ok a ->
-          Nfa.project (( <> ) (Var x)) a |> Nfa.to_dfa |> Nfa.minimize |> Nfa.to_nfa |> Result.ok
+          Nfa.project (( <> ) (Var x)) a
+          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.to_nfa |> Result.ok
       | _ as a ->
           a )
   | Ast.Any (x, f) -> (
     match eval state f with
       | Ok v ->
-          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
+          Nfa.to_dfa v |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
+          |> Nfa.remove_unreachable
           |> Nfa.project (( <> ) (Var x))
-          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> Nfa.remove_unreachable
-          |> Result.ok
+          |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
+          |> Nfa.remove_unreachable |> Result.ok
       | _ as a ->
           a )
   | Ast.Pred (name, args) -> (
@@ -172,7 +172,10 @@ let exec state line = function
             let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in
             let oc = open_out (Format.sprintf "dumps/%s.dot" line) in
             let out = Format.asprintf "%a" (Nfa.format_nfa format_atom) nfa in
-            let command = Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file svg_file svg_file in
+            let command =
+              Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s"
+                dot_file svg_file svg_file
+            in
             Printf.fprintf oc "%s" out;
             close_out oc;
             Sys.command command |> ignore;
