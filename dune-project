@@ -19,6 +19,7 @@
  (depends 
    ocaml 
    dune 
+   base 
    angstrom 
    (alcotest :with-test)
    (ocamlformat

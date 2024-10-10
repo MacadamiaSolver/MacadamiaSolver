@@ -10,7 +10,8 @@ bug-reports: "https://github.com/MacadamiaSolver/MacadamiaSolver/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.16"}
-  "angstrom" {>= "0.16.0"}
+  "base"
+  "angstrom"
   "alcotest" {with-test}
   "ocamlformat" {= "0.26.2" & dev}
   "odoc" {with-doc}

@@ -1,6 +1,6 @@
 open Lib
 open Bits
-module Map = Nfa.Map
+module Map = Dfa.Map
 
 let ( let* ) = Option.bind
 
@@ -20,9 +20,9 @@ let test_add_nfa () =
         | _ ->
             failwith "Expected same size lists"
     in
-    helper lhs rhs sum |> Nfa.run_dfa dfa
+    helper lhs rhs sum |> Dfa.run dfa
   in
-  let dfa = NfaCollection.Add.add ~lhs:Lhs ~rhs:Rhs ~sum:Sum in
+  let dfa = DfaCollection.add ~lhs:Lhs ~rhs:Rhs ~sum:Sum in
   (* 5+4=9 *)
   Alcotest.(check bool)
     "same bool" true
@@ -43,9 +43,9 @@ let test_add_same_number_nfa () =
         | _ ->
             failwith "Expected same size lists"
     in
-    helper x y |> Nfa.run_dfa dfa
+    helper x y |> Dfa.run dfa
   in
-  let dfa = NfaCollection.Add.add ~lhs:"x" ~rhs:"x" ~sum:"y" in
+  let dfa = DfaCollection.add ~lhs:"x" ~rhs:"x" ~sum:"y" in
   (* 2+2=4 *)
   Alcotest.(check bool) "same bool" true (run dfa [O; I; O; O] [O; O; I; O]);
   (* 3+3!=7 *)
@@ -62,24 +62,24 @@ let test_eq_nfa () =
         | _ ->
             failwith "Expected same size lists"
     in
-    helper x y |> Nfa.run_dfa dfa
+    helper x y |> Dfa.run dfa
   in
-  let dfa = NfaCollection.Eq.eq "x" "y" in
+  let dfa = DfaCollection.eq "x" "y" in
   (* 3=3 *)
   Alcotest.(check bool) "same bool" true (run dfa [I; I; O; O] [I; I; O; O]);
   (* 3!=4 *)
   Alcotest.(check bool) "same bool" false (run dfa [I; I; O; O] [O; O; I; O])
 
 let test_eq_const_nfa () =
-  let run dfa x = x |> List.map (Map.singleton "x") |> Nfa.run_dfa dfa in
-  let dfa = NfaCollection.Eq.eq_const "x" 7 in
+  let run dfa x = x |> List.map (Map.singleton "x") |> Dfa.run dfa in
+  let dfa = DfaCollection.eq_const "x" 7 in
   (* 7=7 *)
   Alcotest.(check bool) "same bool" true (run dfa [I; I; I; O]);
   (* 6!=7 *)
   Alcotest.(check bool) "same bool" false (run dfa [O; I; I; O])
 
 let tests =
-  ( "Nfa collection"
+  ( "Dfa collection"
   , [ Alcotest.test_case "" `Quick test_add_nfa
     ; Alcotest.test_case "" `Quick test_add_same_number_nfa
     ; Alcotest.test_case "" `Quick test_eq_nfa
