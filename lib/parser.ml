@@ -14,7 +14,7 @@ let is_digit = function '0' .. '9' -> true | _ -> false
 
 let const = take_while1 is_digit >>| (Ast.const << int_of_string)
 
-let is_idchar = function 'a' .. 'z' | 'A' .. 'Z' | '_' | '0' .. '9' -> true | _ -> false
+let is_idchar = function 'a' .. 'z' | '_' | '0' .. '9' -> true | _ -> false
 
 let varname = take_while1 is_idchar
 let var = varname >>| Ast.var
@@ -76,7 +76,7 @@ let any formula = char 'A' *> lift2 (fun a b -> Ast.any a b) varname (whitespace
 let formula =
   fix (fun formula ->
       let aformula = parens formula <|> equals <|> pred in
-      let aformula1 = mnot aformula <|> aformula in
+      let aformula1 = mnot formula <|> aformula in
       let aformula2 = chainl1 aformula1 mand in
       let aformula3 = chainl1 aformula2 mor in
       let aformula4 = chainl1 aformula3 mimpl in
