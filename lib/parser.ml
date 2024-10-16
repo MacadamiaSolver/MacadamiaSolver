@@ -66,7 +66,7 @@ let pred_op op ast =
 let aformula =
   pred_op "=" Ast.eq <|> pred_op "!=" Ast.neq <|> pred_op "<" Ast.lt
   <|> pred_op ">" Ast.gt <|> pred_op "<=" Ast.geq <|> pred_op ">=" Ast.leq
-  <|> pred
+  <|> pred <?> "Expected aformula"
 
 let quantifier sym ast formula =
   let* _ = char sym in
@@ -120,7 +120,8 @@ let stmt =
   <|> kw1 "parse" Ast.parse formula
   <|> kw "list" (Ast.list ())
   <|> kw "help" (Ast.help ())
+  <?> "Unknown statement"
 
-let parse_formula str = parse_string ~consume:All formula str
+let parse_formula str = parse_string ~consume:Prefix formula str
 
-let parse str = parse_string ~consume:All stmt str
+let parse str = parse_string ~consume:Prefix stmt str

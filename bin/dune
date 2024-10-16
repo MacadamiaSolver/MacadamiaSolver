@@ -1,4 +1,9 @@
 (executable
  (public_name MacadamiaSolver)
  (name mandms)
- (libraries lib ))
+ (libraries lib))
+
+(executable
+ (public_name MacadamiaSolverSmtLib)
+ (name smtlib)
+ (libraries lib smtlib-utils))

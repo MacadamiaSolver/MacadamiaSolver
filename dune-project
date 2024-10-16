@@ -21,6 +21,7 @@
    dune 
    base 
    angstrom 
+   smtlib-utils
    (alcotest :with-test)
    (ocamlformat
     (and
