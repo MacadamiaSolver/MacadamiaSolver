@@ -12,7 +12,7 @@ let is_digit = function '0' .. '9' -> true | _ -> false
 
 let const = take_while1 is_digit >>| int_of_string >>| Ast.const
 
-let is_idschar = function 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false
+let is_idschar = function 'a' .. 'z' | '_' -> true | _ -> false
 let is_idchar = function 'a' .. 'z' | 'A' .. 'Z' | '_' | '0' .. '9' -> true | _ -> false
 let ident =
   let* a = satisfy is_idschar in
@@ -48,7 +48,7 @@ let term =
     |> bin_op "+" Ast.add)
 
 let pred =
-  let* name = take_while1 is_idchar <* whitespace in
+  let* name = ident <* whitespace in
   let* params = (whitespace *> term |> many) <* whitespace in
   Ast.pred name params |> return
 
@@ -114,7 +114,7 @@ let stmt =
   kw1 "dump" Ast.dump formula <|>
   kw1 "parse" Ast.parse formula <|>
   kw "list" (Ast.list ()) <|>
-  kw "help" (Ast.help ())
+  kw "help" (Ast.help ()) <?> "Unknown statement"
 
 let parse_formula str = parse_string ~consume:All formula str
 

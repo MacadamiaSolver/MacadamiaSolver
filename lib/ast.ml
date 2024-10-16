@@ -85,24 +85,24 @@ let list () = List
 let help () = Help
 
 let rec pp_term ppf = function
-  | Var n -> Format.fprintf ppf "(Var %s)" n
-  | Const n -> Format.fprintf ppf "(Const %d)" n
-  | Add (a, b) -> Format.fprintf ppf "(+ %a %a)" pp_term a pp_term b
-  | Mul (a, b) -> Format.fprintf ppf "(* %d %a)" a pp_term b
+  | Var n -> Format.fprintf ppf "%s" n
+  | Const n -> Format.fprintf ppf "%d" n
+  | Add (a, b) -> Format.fprintf ppf "(%a + %a)" pp_term a pp_term b
+  | Mul (a, b) -> Format.fprintf ppf "(%d * %a)" a pp_term b
 
 let rec pp_formula ppf = function
   | Pred (a, b) -> Format.fprintf ppf "(P %s %a)" a (Format.pp_print_list pp_term) b
-  | Eq (a, b) -> Format.fprintf ppf "(= %a %a)" pp_term a pp_term b
-  | Neq (a, b) -> Format.fprintf ppf "(!= %a %a)" pp_term a pp_term b
-  | Lt (a, b) -> Format.fprintf ppf "(< %a %a)" pp_term a pp_term b
-  | Gt (a, b) -> Format.fprintf ppf "(> %a %a)" pp_term a pp_term b
-  | Leq (a, b) -> Format.fprintf ppf "(<= %a %a)" pp_term a pp_term b
-  | Geq (a, b) -> Format.fprintf ppf "(>= %a %a)" pp_term a pp_term b
+  | Eq (a, b) -> Format.fprintf ppf "(%a = %a)" pp_term a pp_term b
+  | Neq (a, b) -> Format.fprintf ppf "(%a != %a)" pp_term a pp_term b
+  | Lt (a, b) -> Format.fprintf ppf "(%a < %a)" pp_term a pp_term b
+  | Gt (a, b) -> Format.fprintf ppf "(%a > %a)" pp_term a pp_term b
+  | Leq (a, b) -> Format.fprintf ppf "(%a <= %a)" pp_term a pp_term b
+  | Geq (a, b) -> Format.fprintf ppf "(%a >= %a)" pp_term a pp_term b
   | Mnot (a) -> Format.fprintf ppf "(~ %a)" pp_formula a
-  | Mand (a, b) -> Format.fprintf ppf "(& %a %a)" pp_formula a pp_formula b
-  | Mor (a, b) -> Format.fprintf ppf "(& %a %a)" pp_formula a pp_formula b
-  | Mimpl (a, b) -> Format.fprintf ppf "(-> %a %a)" pp_formula a pp_formula b
-  | Miff (a, b) -> Format.fprintf ppf "(<-> %a %a)" pp_formula a pp_formula b
-  | Exists (a, b) -> Format.fprintf ppf "(E %s %a)" a pp_formula b
-  | Any (a, b) -> Format.fprintf ppf "(A %s %a)" a pp_formula b
+  | Mand (a, b) -> Format.fprintf ppf "(%a & %a)" pp_formula a pp_formula b
+  | Mor (a, b) -> Format.fprintf ppf "(%a | %a)" pp_formula a pp_formula b
+  | Mimpl (a, b) -> Format.fprintf ppf "(%a -> %a)" pp_formula a pp_formula b
+  | Miff (a, b) -> Format.fprintf ppf "(%a <-> %a)" pp_formula a pp_formula b
+  | Exists (a, b) -> Format.fprintf ppf "(E%s %a)" a pp_formula b
+  | Any (a, b) -> Format.fprintf ppf "(A%s %a)" a pp_formula b
 

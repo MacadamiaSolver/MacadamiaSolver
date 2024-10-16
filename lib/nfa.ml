@@ -111,7 +111,8 @@ let map_varname f (Nfa nfa) =
           ~f:
             (Set.filter_map ~f:(fun (transitions, state) ->
                  let* transitions =
-                   transitions |> Map.to_sequence
+                   transitions
+                   |> Map.to_sequence
                    |> Sequence.map ~f:(fun (a, b) -> (f a, b))
                    |> Map.of_sequence_multi
                    |> Map.map ~f:(function
@@ -126,8 +127,17 @@ let map_varname f (Nfa nfa) =
   |> update_final_states_nfa
 
 let cartesian_product l1 l2 =
+  Set.fold ~f:(fun x a ->
+    Set.fold ~f:(fun y b ->
+      Set.add y (a, b))
+      ~init:x
+      l2)
+    ~init:Set.empty
+    l1
+  (*Set.map
+    ~f:()
   Base.Sequence.cartesian_product (Set.to_sequence l1) (Set.to_sequence l2)
-  |> Set.of_sequence
+  |> Set.of_sequence*)
 
 let combine mask1 mask2 =
   Map.merge mask1 mask2 ~f:(fun ~key data ->
