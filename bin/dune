@@ -1,4 +1,4 @@
 (executable
  (public_name MacadamiaSolver)
- (name main)
- (libraries lib))
+ (name mandms)
+ (libraries lib ))

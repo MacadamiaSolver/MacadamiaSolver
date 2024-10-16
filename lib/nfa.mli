@@ -18,6 +18,8 @@ val remove_unreachable : 'v nfa -> 'v nfa
 
 val intersect : 'v nfa -> 'v nfa -> 'v nfa
 
+val unite : 'v nfa -> 'v nfa -> 'v nfa
+
 val project : ('v -> bool) -> 'v nfa -> 'v nfa
 
 val format_nfa :
@@ -38,3 +40,11 @@ val create_dfa :
 val run_dfa : 'v dfa -> ('v, bit) Map.t list -> bool
 
 val to_nfa : 'v dfa -> 'v nfa
+
+val to_dfa : 'v nfa -> 'v dfa
+
+val invert : 'v dfa -> 'v dfa
+
+val minimize : 'v dfa -> 'v dfa
+
+val is_graph : 'v nfa -> bool

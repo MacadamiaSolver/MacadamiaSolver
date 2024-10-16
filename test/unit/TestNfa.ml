@@ -136,18 +136,6 @@ let test_dfa_to_nfa () =
   Alcotest.(check bool) "same bool" true (run nfa [I]);
   Alcotest.(check bool) "same bool" false (run nfa [O])
 
-(* let t1 () = *)
-(*   let two = to_bit_string 2 |> List.rev in *)
-(*   let three = to_bit_string 5 |> List.rev in *)
-(*   let seven = to_bit_string 7 |> List.rev in *)
-(*   let input = zip3 two three seven in *)
-(*   let () = Format.pp_print_list print_thing Format.std_formatter input in *)
-(*   Alcotest.(check bool) "same bool" true (Nfa.run_nfa add_nfa input) *)
-
-(* let t2 () = *)
-(*   let input = [(O, O); (O, O); (O, O)] in *)
-(*   Alcotest.(check bool) "same bool" true (Nfa.run_nfa eq_nfa input) *)
-
 let tests =
   ( "Nfa"
   , [ Alcotest.test_case "" `Quick test_simple_nfa
@@ -157,6 +145,3 @@ let tests =
     ; Alcotest.test_case "" `Quick test_simple_dfa
     ; Alcotest.test_case "" `Quick test_collisions_dfa
     ; Alcotest.test_case "" `Quick test_dfa_to_nfa ] )
-(*     ; Alcotest.test_case "" `Quick test_intersect_nfa *)
-(*     ; Alcotest.test_case "" `Quick t1 *)
-(*     ; Alcotest.test_case "" `Quick t2 ] ) *)
