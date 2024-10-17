@@ -65,7 +65,7 @@ let pred_op op ast =
 
 let aformula =
   pred_op "=" Ast.eq <|> pred_op "!=" Ast.neq <|> pred_op "<" Ast.lt
-  <|> pred_op ">" Ast.gt <|> pred_op "<=" Ast.geq <|> pred_op ">=" Ast.leq
+  <|> pred_op ">" Ast.gt <|> pred_op "<=" Ast.leq <|> pred_op ">=" Ast.geq
   <|> pred <?> "Expected aformula"
 
 let quantifier sym ast formula =

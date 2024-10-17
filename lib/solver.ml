@@ -112,7 +112,7 @@ let eval ast =
             let rv, ra = teval r in
             NfaCollection.Eq.eq lv rv |> Nfa.to_nfa |> Nfa.intersect la
             |> Nfa.intersect ra
-            |> Nfa.project (function Var _ | Internal _ -> false)
+            |> Nfa.project (function Var _ -> true | Internal _ -> false)
             |> Nfa.remove_unreachable |> Result.ok
         | Ast.Mnot f -> (
           match eval f with
@@ -207,6 +207,20 @@ let eval ast =
                   Result.ok nfa
               | None ->
                   Printf.sprintf "Unknown predicate %s" name |> Result.error )
+        | Ast.Leq (l, r) ->
+            let lv, la = teval l in
+            let rv, ra = teval r in
+            NfaCollection.leq lv rv |> Nfa.to_nfa |> Nfa.intersect la
+            |> Nfa.intersect ra
+            |> Nfa.project (function Var _ -> true | Internal _ -> false)
+            |> Nfa.remove_unreachable |> Result.ok
+        | Ast.Geq (l, r) ->
+            let lv, la = teval l in
+            let rv, ra = teval r in
+            NfaCollection.geq lv rv |> Nfa.to_nfa |> Nfa.intersect la
+            |> Nfa.intersect ra
+            |> Nfa.project (function Var _ -> true | Internal _ -> false)
+            |> Nfa.remove_unreachable |> Result.ok
         | _ ->
             failwith "unimplemented"
     in

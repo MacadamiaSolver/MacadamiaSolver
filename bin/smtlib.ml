@@ -17,10 +17,13 @@ let add_assertion assertion ({asserts; _} as state) =
 let add_var var ({vars; _} as state) = {state with vars= var :: vars}
 
 let run {asserts; vars; _} =
-  asserts
-  |> List.map (fun f -> List.fold_left (Fun.flip Formula.exists) f vars)
-  |> List.map Solver.proof |> Base.Result.all |> Result.get_ok
-  |> List.for_all Fun.id
+  match asserts with
+    | h :: tl ->
+        List.fold_left Formula.mand h tl
+        |> (fun f -> List.fold_left (Fun.flip Formula.exists) f vars)
+        |> Solver.proof |> Result.get_ok
+    | [] ->
+        true
 
 let term_of_binop = function
   | Ast.Add ->
@@ -105,7 +108,8 @@ let bool_of_sat_fail = function
 
 let exec ({sat; status; _} as state) = function
   | Ast.Stmt_set_logic logic ->
-      if logic = "LIA" then state else failwith "Only LIA logic is supported"
+      if String.ends_with ~suffix:"LIA" logic then state
+      else failwith "Only LIA logic is supported"
   | Ast.Stmt_set_info (k, v) ->
       if k = ":status" then
         let sat = bool_of_sat_fail v in

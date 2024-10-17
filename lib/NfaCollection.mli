@@ -13,3 +13,7 @@ module Neutral : sig
 
   val z : unit -> 'a Nfa.dfa
 end
+
+val leq : 'var -> 'var -> 'var Nfa.dfa
+
+val geq : 'var -> 'var -> 'var Nfa.dfa
