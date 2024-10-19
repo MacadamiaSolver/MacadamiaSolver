@@ -63,3 +63,22 @@ module Neutral = struct
 
   let z () = Nfa.create_dfa ~transitions:[] ~start:() ~final:[] |> Result.get_ok
 end
+
+type leq_state = Eq | Neq
+
+let leq lhs rhs =
+    Nfa.create_dfa
+      ~transitions:
+        ( [ l (Eq, [(lhs, O); (rhs, O)], Eq)
+          ; l (Eq, [(lhs, I); (rhs, I)], Eq)
+          ; l (Eq, [(lhs, O); (rhs, I)], Eq)
+          ; l (Eq, [(lhs, I); (rhs, O)], Neq)
+          ; l (Neq, [(lhs, I); (rhs, I)], Neq)
+          ; l (Neq, [(lhs, O); (rhs, O)], Neq)
+          ; l (Neq, [(lhs, I); (rhs, O)], Neq)
+          ; l (Neq, [(lhs, O); (rhs, I)], Eq) ]
+        |> List.filter_map Fun.id )
+      ~start:Eq ~final:[Eq]
+    |> Result.get_ok
+
+let geq x y = leq y x

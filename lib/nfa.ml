@@ -126,16 +126,14 @@ let map_varname f (Nfa nfa) =
                  Some (transitions, state) ) ) }
   |> update_final_states_nfa
 
-let cartesian_product l1 l2 =
-  Set.fold ~f:(fun x a ->
-    Set.fold ~f:(fun y b ->
-      Set.add y (a, b))
+(*let map_cartesian_product m1 m2 = 
+  Map.fold ~f:(fun ~key:a ~data:c x -> 
+    Map.fold ~f:(fun ~key:b ~data:d y -> 
+      Map.add_exn ~key:(a, b) ~data:(c, d) y)
       ~init:x
-      l2)
-    ~init:Set.empty
-    l1
-  (*Set.map
-    ~f:()
+      m2)
+    ~init:Map.empty
+    m1
   Base.Sequence.cartesian_product (Set.to_sequence l1) (Set.to_sequence l2)
   |> Set.of_sequence*)
 
@@ -165,6 +163,14 @@ let remove_unreachable (Nfa nfa) =
     }
 
 let intersect (Nfa nfa1) (Nfa nfa2) =
+  let cartesian_product l1 l2 =
+    Set.fold ~f:(fun x a ->
+      Set.fold ~f:(fun y b ->
+        Set.add y (a, b))
+        ~init:x
+        l2)
+      ~init:Set.empty
+      l1 in
   Nfa
     { final= cartesian_product nfa1.final nfa2.final
     ; start= cartesian_product nfa1.start nfa2.start
@@ -180,7 +186,8 @@ let intersect (Nfa nfa1) (Nfa nfa2) =
                         Some (mask, (state1, state2)) )
                in
                if Set.is_empty set then None else Some ((src1, src2), set) )
-        |> Map.of_sequence_reduce ~f:Set.union }
+        |> Map.of_sequence_reduce ~f:Set.union}
+  |> remove_unreachable
   |> update_final_states_nfa
 
 let unite (Nfa nfa1) (Nfa nfa2) =
@@ -445,7 +452,7 @@ let to_dfa (Nfa nfa) =
   let final =
     List.filter_map
       (fun q ->
-        match Set.inter q nfa.final |> Set.is_empty with
+        match Set.are_disjoint q nfa.final with
           | true ->
               Option.none
           | false ->
@@ -464,6 +471,37 @@ let minimize (Dfa dfa) =
   let contains s v =
     Set.find ~f:(fun u -> Stdlib.compare v u = 0) s |> Option.is_some
   in
+  (*let rec aux m =
+    let m' = Set.fold
+      ~f:(fun acc qs -> 
+        let qd = Set.map ~f:(fun q1 ->
+          Set.filter_map ~f:(fun q2 -> 
+            let d1 =
+              Option.value (Map.find dfa.transitions q1) ~default:Set.empty
+            in
+            let d2 =
+              Option.value (Map.find dfa.transitions q2) ~default:Set.empty
+            in
+            match Set.exists
+              ~f:(fun (l1, q1') ->
+                Set.exists
+                  ~f:(fun (l2, q2') ->
+                    labels_differ l1 l2 |> not
+                  && Map.find_exn m (q1', q2') )
+                d2 )
+              d1 with
+            | true -> Option.some (q1, q2)
+            | false -> Option.none)
+            qs)
+          qs in
+        let qs' = Set.map qd
+      )
+      Set.empty
+      m
+    in
+    match Set.count m' = Set.count m with 
+    | true -> m'
+    | false -> aux m' in*)
   let rec aux m =
     let m1 =
       Map.mapi
@@ -478,8 +516,8 @@ let minimize (Dfa dfa) =
                 let d2 =
                   Option.value (Map.find dfa.transitions q2) ~default:Set.empty
                 in
-                Stdlib.compare q1 q2 != 0
-                && Set.exists
+                (*Stdlib.compare q1 q2 != 0
+                && *)Set.exists
                      ~f:(fun (l1, q1') ->
                        Set.exists
                          ~f:(fun (l2, q2') ->
@@ -522,12 +560,23 @@ let minimize (Dfa dfa) =
   let start = new_state dfa.start in
   let final = Set.map ~f:(fun qf -> new_state qf) dfa.final in
   let transitions =
-    dfa.transitions |> Map.to_sequence
+    dfa.transitions
+      |> Map.map ~f:(fun ms -> Set.map ~f:(fun (m, q') -> (m, new_state q')) ms)
+      |> Map.fold
+        ~f:(fun ~key:q ~data:v acc ->
+          let q' = new_state q in
+          match Map.find acc q' with 
+          | Some u -> Map.set ~key:q' ~data:(Set.union v u) acc
+          | None -> Map.add_exn ~key:q' ~data:v acc)
+        ~init:Map.empty
+      (*|> Map.map_keys ~f:(fun q -> new_state q)*)
+      (*|> Map.map_keys_exn *)
+    (*dfa.transitions |> Map.to_sequence
     |> Sequence.map ~f:(fun (q, ms) ->
            let q' = new_state q in
            let ms' = Set.map ~f:(fun (m, q'') -> (m, new_state q'')) ms in
            (q', ms') )
-    |> Map.of_sequence_reduce ~f:Set.union
+    |> Map.of_sequence_reduce ~f:Set.union*)
   in
   Dfa {start; final; transitions}
 

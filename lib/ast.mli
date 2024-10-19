@@ -87,4 +87,3 @@ val help : unit -> stmt
 val pp_term : Format.formatter -> term -> unit
 
 val pp_formula : Format.formatter -> formula -> unit
-

@@ -1,4 +1,4 @@
-open Lib
+(* open Lib *)
 (*
 let test_exists_bigger () =
   Alcotest.(check string)
@@ -33,8 +33,8 @@ let test_sum_of_evens_is_even () =
 let tests =
   ( "Parser"
   , [ (*Alcotest.test_case "Exists bigger int for any int" `Quick
-        test_exists_bigger
-    ; Alcotest.test_case "No biggest int exists" `Quick test_no_biggest_int
-    ; Alcotest.test_case "Divisible by 7 integers" `Quick test_divisible_by_7
-    ; Alcotest.test_case "Sum of evens is even" `Quick test_sum_of_evens_is_even
-    *)] )
+            test_exists_bigger
+        ; Alcotest.test_case "No biggest int exists" `Quick test_no_biggest_int
+        ; Alcotest.test_case "Divisible by 7 integers" `Quick test_divisible_by_7
+        ; Alcotest.test_case "Sum of evens is even" `Quick test_sum_of_evens_is_even
+      *) ] )
