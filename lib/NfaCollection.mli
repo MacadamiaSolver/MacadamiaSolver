@@ -1,19 +1,14 @@
-module Add : sig
-  val add : lhs:'var -> rhs:'var -> sum:'var -> 'var Nfa.dfa
-end
+type varpos = int
+type deg = int
 
-module Eq : sig
-  val eq : 'var -> 'var -> 'var Nfa.dfa
+val add : lhs:varpos -> rhs:varpos -> sum:varpos -> deg -> Nfa.t
 
-  val eq_const : 'var -> int -> 'var Nfa.dfa
-end
+val eq : varpos -> varpos -> deg -> Nfa.t
 
-module Neutral : sig
-  val n : unit -> 'a Nfa.dfa
+val eq_const : varpos -> int -> deg -> Nfa.t
 
-  val z : unit -> 'a Nfa.dfa
-end
+val n : deg -> Nfa.t
+val z : deg -> Nfa.t
 
-val leq : 'var -> 'var -> 'var Nfa.dfa
-
-val geq : 'var -> 'var -> 'var Nfa.dfa
+val leq : varpos -> varpos -> deg -> Nfa.t
+val geq : varpos -> varpos -> deg -> Nfa.t

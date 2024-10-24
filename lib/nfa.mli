@@ -1,50 +1,40 @@
 module Map = Base.Map.Poly
 
 type bit = Bits.bit
+type deg = int
 
-type 'varname nfa
+type t
 
 val create_nfa :
-     transitions:('s * ('var, bit) Map.t * 's) list
+     transitions:('s * int * 's) list
   -> start:'s list
   -> final:'s list
-  -> 'var nfa
+  -> vars:int list
+  -> deg:int
+  -> t
 
-val run_nfa : 'v nfa -> ('v, bit) Map.t list -> bool
+val run_nfa : t -> bool
 
-val map_varname : ('a -> 'b) -> 'a nfa -> 'b nfa
+val remove_unreachable : t -> t
 
-val remove_unreachable : 'v nfa -> 'v nfa
+val intersect : t -> t -> t
 
-val intersect : 'v nfa -> 'v nfa -> 'v nfa
+val unite : t -> t -> t
 
-val unite : 'v nfa -> 'v nfa -> 'v nfa
+val project : int list -> t -> t
 
-val project : ('v -> bool) -> 'v nfa -> 'v nfa
+val truncate : int -> t -> t
 
-val format_nfa :
-  (Format.formatter -> 'v -> unit) -> Format.formatter -> 'v nfa -> unit
+val format_nfa : Format.formatter -> t -> unit
 
-type 'varname dfa
+type dfa
 
-type ('state, 'varname) dfaCollisions =
-  ('state * ('varname, bit) Map.t * ('varname, bit) Map.t * 'state * 'state)
-  list
+val to_nfa : dfa -> t
 
-val create_dfa :
-     transitions:('s * ('var, bit) Map.t * 's) list
-  -> start:'s
-  -> final:'s list
-  -> ('var dfa, ('s, 'var) dfaCollisions) result
+val to_dfa : t -> dfa
 
-val run_dfa : 'v dfa -> ('v, bit) Map.t list -> bool
+val invert : dfa -> dfa
 
-val to_nfa : 'v dfa -> 'v nfa
+val minimize : dfa -> dfa
 
-val to_dfa : 'v nfa -> 'v dfa
-
-val invert : 'v dfa -> 'v dfa
-
-val minimize : 'v dfa -> 'v dfa
-
-val is_graph : 'v nfa -> bool
+val is_graph : t -> bool
