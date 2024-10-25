@@ -208,8 +208,7 @@ let eval s ast =
             |> return
         | Ast.Mnot f ->
           let* nfa = eval f in
-          nfa |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable |> return
+          nfa |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa |> return
         | Ast.Mand (f1, f2) ->
             let* la = eval f1 in
             let* ra = eval f2 in
@@ -235,10 +234,9 @@ let eval s ast =
           let var = var_exn x in
           nfa 
           |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable
           |> Nfa.project [var]
           |> Nfa.to_dfa |> Nfa.minimize |> Nfa.invert |> Nfa.to_nfa
-          |> Nfa.remove_unreachable |> return
+          |> return
         (*| Ast.Pred (name, args) -> (
             let args = List.map (teval s) args in
             match
@@ -285,6 +283,7 @@ let eval s ast =
 let dump f =
   let* nfa = eval !s f in
   Format.asprintf "%a" Nfa.format_nfa nfa |> return
+  (*Format.asprintf "%a" Nfa.format_nfa (Nfa.intersect (NfaCollection.n 3) (NfaCollection.eq_const 0 4 3))|> return*)
 
 let list () =
   let rec aux = function
