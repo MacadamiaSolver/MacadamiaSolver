@@ -1,4 +1,7 @@
 (library
  (name lib)
- (modules Ast Parser Nfa Bits NfaCollection Solver Utils)
- (libraries base angstrom bitv))
+ (modules Ast Bits Nfa NfaCollection Parser Solver Utils)
+ (libraries base angstrom bitv)
+ (inline_tests)
+ (preprocess
+  (pps ppx_inline_test ppx_assert ppx_expect)))

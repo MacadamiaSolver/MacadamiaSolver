@@ -14,11 +14,7 @@ let const = take_while1 is_digit >>| int_of_string >>| Ast.const
 
 let is_idschar = function 'a' .. 'z' | '_' -> true | _ -> false
 
-let is_idchar = function
-  | 'a' .. 'z' | '_' | '0' .. '9' ->
-      true
-  | _ ->
-      false
+let is_idchar = function 'a' .. 'z' | '_' | '0' .. '9' -> true | _ -> false
 
 let ident =
   let* a = satisfy is_idschar in
@@ -54,7 +50,7 @@ let term =
 
 let pred =
   let* name = ident <* whitespace in
-  let* params = (whitespace *> term |> many) <* whitespace in
+  let* params = whitespace *> term |> many <* whitespace in
   Ast.pred name params |> return
 
 let pred_op op ast =
@@ -125,3 +121,26 @@ let stmt =
 let parse_formula str = parse_string ~consume:Prefix formula str
 
 let parse str = parse_string ~consume:Prefix stmt str
+
+let%expect_test "parse simple formula" =
+  Format.printf "%a" Ast.pp_formula
+    (parse_formula {|Ax x = 2 | x != 2|} |> Result.get_ok);
+  [%expect {| (Ax ((x = 2) | (x != 2))) |}]
+
+let%expect_test "parse multiple quantifier formula" =
+  Format.printf "%a" Ast.pp_formula
+    (parse_formula {|ExEy z = 5x + 3y|} |> Result.get_ok);
+  [%expect {| (Ex (Ey (z = ((5 * x) + (3 * y))))) |}]
+
+let%expect_test "parse long chain" =
+  Format.printf "%a" Ast.pp_formula
+    (parse_formula {|x = 2 & y = 3 & z = 4 & a = 1 & b = 5|} |> Result.get_ok);
+  [%expect {| (((((x = 2) & (y = 3)) & (z = 4)) & (a = 1)) & (b = 5)) |}]
+
+let%expect_test "parse parens and complex priorities" =
+  Format.printf "%a" Ast.pp_formula
+    ( parse_formula
+        {|a = 1 & b = 2 & (t + 2(z + 3q) + (2d + 5w) >= 15 | (Ex Ey x + y = 15))|}
+    |> Result.get_ok );
+  [%expect
+    {| (((a = 1) & (b = 2)) & ((((t + (2 * (z + (3 * q)))) + ((2 * d) + (5 * w))) >= 15) | (Ex (Ey ((x + y) = 15))))) |}]
