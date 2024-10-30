@@ -27,6 +27,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname * formula
   | Any of varname * formula
+  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
@@ -123,3 +124,5 @@ let rec pp_formula ppf = function
       Format.fprintf ppf "(E%s %a)" a pp_formula b
   | Any (a, b) ->
       Format.fprintf ppf "(A%s %a)" a pp_formula b
+  | Pow2 a ->
+      Format.fprintf ppf "(Pow2 %a)" pp_term a

@@ -10,7 +10,7 @@ type deg = int
 type t
 
 val create_nfa :
-     transitions:(int * state) list list
+     transitions:(state * int * state) list
   -> start:state list
   -> final:state list
   -> vars:int list

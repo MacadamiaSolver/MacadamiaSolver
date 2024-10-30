@@ -27,6 +27,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname * formula
   | Any of varname * formula
+  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
