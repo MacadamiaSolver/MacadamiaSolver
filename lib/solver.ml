@@ -93,6 +93,10 @@ let collect f =
 
 let internal_counter = ref 0
 
+let internal s =
+  internal_counter := !internal_counter + 1;
+  !internal_counter - 1 + Map.length s.vars
+
 let teval s ast =
   let var_exn v = Map.find_exn s.vars v in
   let rec internals = function
@@ -120,10 +124,6 @@ let teval s ast =
         in
         aux a t1
   in
-  let internal () =
-    internal_counter := !internal_counter + 1;
-    !internal_counter - 1 + Map.length s.vars
-  in
   (*let internal_counter = ref (Map.length s.vars) in
     let internal () =
       internal_counter := !internal_counter + 1;
@@ -136,12 +136,12 @@ let teval s ast =
           let var = var_exn a in
           (var, NfaCollection.n (deg ()))
       | Ast.Const a ->
-          let var = internal () in
+          let var = internal s in
           (var, NfaCollection.eq_const var a (deg ()))
       | Ast.Add (l, r) ->
           let lv, la = teval l in
           let rv, ra = teval r in
-          let res = internal () in
+          let res = internal s in
           ( res
           , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res (deg ())
             |> Nfa.intersect la |> Nfa.intersect ra )
@@ -149,7 +149,7 @@ let teval s ast =
           let rec teval_mul a b =
             match a with
               | 0 ->
-                  let var = internal () in
+                  let var = internal s in
                   (var, NfaCollection.eq_const var 0 (deg ()))
               | 1 ->
                   teval b
@@ -157,14 +157,14 @@ let teval s ast =
                 match a mod 2 with
                   | 0 ->
                       let tv, ta = teval_mul (a / 2) b in
-                      let res = internal () in
+                      let res = internal s in
                       ( res
                       , NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res (deg ())
                         |> Nfa.intersect ta )
                   | 1 ->
                       let tv, ta = teval_mul (a - 1) b in
                       let uv, ua = teval b in
-                      let res = internal () in
+                      let res = internal s in
                       ( res
                       , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res (deg ())
                         |> Nfa.intersect ta |> Nfa.intersect ua )
@@ -289,6 +289,13 @@ let log2 n =
   let rec helper acc = function 0 -> acc | n -> helper (acc + 1) (n / 2) in
   helper 0 n
 
+let pow2 n =
+  match n with
+    | 0 ->
+        1
+    | n ->
+        List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
+
 (* let chrobak_of_nfa (nfa : 'a Nfa.nfa) : (int * int) list = failwith "" *)
 
 let nfa_for_exponent s var newvar _chrob =
@@ -299,32 +306,36 @@ let nfa_for_exponent s var newvar _chrob =
   (*        c |> gen_list_n |> List.map (fun d -> (a, d, c)) ) *)
   (* |> (Fun.flip List.nth) 1 *)
   (* |> (fun (a, d, c) -> *)
-  Format.printf "\na\n%!";
   let a = 3 in
   let d = 1 in
   let c = 5 in
-  let* nfa =
-    eval s
-      (Exists
-         ( var ^ "_"
-         , Eq (Var var, Add (Add (Const a, Const d), Mul (c, Var (var ^ "_"))))
-         ) )
+  let ast =
+    Ast.Exists
+      ( var ^ "$"
+      , Eq (Var var, Add (Add (Const a, Const d), Mul (c, Var (var ^ "$")))) )
   in
-  Format.printf "\nb\n%!";
+  let s =
+    { s with
+      vars=
+        Map.add_exn ~key:(var ^ "$")
+          ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
+          s.vars }
+  in
+  let* nfa = eval s ast in
   let n =
     List.init a (( + ) (a + 1))
     |> List.filter (fun x -> x - log2 x >= a)
     |> List.hd
   in
   Format.printf "\n%d\n%!" n;
-  let internal = 31 in
-  nfa
+  let internal = internal s in
+  nfa |> Nfa.truncate 32
   |> Nfa.intersect (NfaCollection.torename newvar d c)
      (* TODO: add minimization here *)
   |> Nfa.intersect
        ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
-       |> Nfa.intersect (NfaCollection.eq_const internal n (deg ()))
-       |> Nfa.truncate (deg ()) )
+       |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
+  |> Nfa.truncate (deg ())
   |> Result.ok
 
 (* ) *)
@@ -332,25 +343,8 @@ let nfa_for_exponent s var newvar _chrob =
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
 
-(* open Utils *)
-(* module Map = Nfa.Map *)
+open Utils
 
-(* let l b = *)
-(*   b |> Map.of_alist_multi *)
-(*   |> Map.map ~f:(function *)
-(*        | [] -> *)
-(*            None *)
-(*        | h :: tl -> *)
-(*            if List.for_all (( = ) h) tl then Some h else None ) *)
-(*   |> option_map_to_map_option |> Option.get *)
-
-(* let rec abc = function *)
-(*   | [] -> *)
-(*       [] *)
-(*   | [x] -> *)
-(*       [(x, Bits.I)] *)
-(*   | h :: tl -> *)
-(*       (h, Bits.O) :: abc tl *)
 let () =
   let s =
     { preds= []
@@ -358,37 +352,35 @@ let () =
     ; total= 0
     ; progress= 0 }
   in
-  let nfa = nfa_for_exponent s "x" "u" [(3, 5)] |> Result.get_ok in
+  let nfa =
+    nfa_for_exponent s "x" "u" [(3, 5)] |> Result.get_ok |> Nfa.truncate 32
+  in
   let s = Format.asprintf "%a" Nfa.format_nfa nfa in
   let line = "tmp" in
-  let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in
-  let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in
+  (* let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in *)
+  (* let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in *)
   let oc = open_out (Format.sprintf "dumps/%s.dot" line) in
-  let command =
-    Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file
-      svg_file svg_file
-  in
+  (* let command = *)
+  (*   Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file *)
+  (*     svg_file svg_file *)
+  (* in *)
   Printf.fprintf oc "%s" s;
   close_out oc;
-  Sys.command command |> ignore
-(* Seq.init 10000000 Fun.id |> Seq.map Bits.to_bit_string |> Seq.map abc *)
-(* |> Seq.map *)
-(*      (List.map (fun (a, b) -> l [(Solver.Var "x", a); (Solver.Var "u", b)])) *)
-(* |> Seq.map (Nfa.run_nfa nfa) *)
-(* |> Seq.zip (Seq.init 10000000 Fun.id) *)
-(* |> Seq.zip *)
-(*      (Seq.init 10000000 Fun.id |> Seq.map Bits.to_bit_string |> Seq.map abc) *)
-(* |> Seq.filter (fun (_, (_, result)) -> result) *)
-(* |> Seq.take 1 *)
-(* |> Seq.for_all (fun (a, (n, res)) -> *)
-(*        Format.printf "%d: %a, %a: %b\n" n *)
-(*          (Format.pp_print_list Bits.pp_print_bit) *)
-(*          (a |> List.map fst) *)
-(*          (Format.pp_print_list Bits.pp_print_bit) *)
-(*          (a |> List.map snd) *)
-(*          res; *)
-(*        true ) *)
-(* |> ignore *)
+  (* Sys.command command |> ignore; *)
+  let amount = 100 in
+  Seq.init amount (fun x ->
+      Nfa.intersect
+        (NfaCollection.eq_const 0 x 32)
+        (NfaCollection.eq_const 1 (x |> log2 |> pow2) 32) )
+  |> Seq.map (Nfa.intersect nfa)
+  |> Seq.map (Nfa.truncate 0)
+  |> Seq.map Nfa.run_nfa
+  |> Seq.zip (Seq.init amount Fun.id)
+  (* |> Seq.filter snd |> Seq.take 1 *)
+  |> Seq.for_all (fun (n, res) ->
+         Format.printf "%d (%d): %b\n" n (n |> log2 |> pow2) res;
+         true )
+  |> ignore
 
 let dump f =
   let* nfa = eval !s f in

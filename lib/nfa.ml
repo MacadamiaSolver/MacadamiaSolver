@@ -129,34 +129,21 @@ let update_final_states_nfa nfa =
   ; final= nfa.final |> get_extended_final_states nfa.transitions
   ; deg= nfa.deg }
 
-let add_to_nth n list x =
-  let rec helper n list x =
-    match (n, list) with
-      | 0, [] ->
-          [x]
-      | n, [] ->
-          helper (n - 1) [] []
-      | 0, h :: tl ->
-          (x @ h) :: tl
-      | n, h :: tl ->
-          h :: helper (n - 1) tl x
-  in
-  helper n list [x]
-
 let create_nfa ~(transitions : (state * int * state) list) ~(start : state list)
     ~(final : state list) ~(vars : int list) ~(deg : int) =
   let transitions =
     transitions
     |> List.fold_left
-         (fun lists (src, lbl, dst) -> add_to_nth src lists (lbl, dst))
-         []
-    |> List.map (fun delta ->
+         (fun lists (src, lbl, dst) ->
+           lists.(src) <- (lbl, dst) :: lists.(src);
+           lists )
+         (Array.init deg (Fun.const []))
+    |> Array.map (fun delta ->
            List.filter_map
              (fun (label, q') ->
                let* vec = stretch (Bitv.of_int_us label) vars deg in
                ((vec, Bitv.of_list_with_length vars deg), q') |> return )
              delta )
-    |> Array.of_list
   in
   {transitions; final= Set.of_list final; start= Set.of_list start; deg}
   |> update_final_states_nfa
