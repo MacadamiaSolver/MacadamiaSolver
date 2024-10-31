@@ -389,3 +389,44 @@ let invert nfa =
   let states = states dfa in
   let final = Set.diff states dfa.final in
   ({final; start= dfa.start; transitions= dfa.transitions; deg= dfa.deg} : t)
+
+let find_c_d (nfa : t) (imp : (int, int) Map.t) =
+  let n = length nfa in
+  let transitions = Array.map (List.map snd) nfa.transitions in
+  assert (Set.length nfa.start = 1);
+  let rec reachable_in n (cur : state Set.t) =
+    match n with
+      | 0 ->
+          [cur]
+      | n ->
+          let states =
+            cur |> Set.to_sequence
+            |> Sequence.concat_map ~f:(fun state ->
+                   transitions.(state) |> Sequence.of_list )
+            |> Set.of_sequence
+          in
+          states :: reachable_in (n - 1) states
+  in
+  let states = reachable_in (n - 1) nfa.start |> List.hd in
+  let states =
+    states |> Set.to_sequence
+    |> Sequence.filter_map ~f:(fun state ->
+           Map.find imp state |> Option.map (fun d -> (state, d)) )
+  in
+  states
+  |> Sequence.concat_map ~f:(fun (state, d) ->
+         let reachable =
+           reachable_in ((n * n) - n - 1) (Set.singleton state)
+           |> List.mapi (fun i set -> (i, Set.are_disjoint nfa.final set))
+           |> List.filter snd |> List.map fst |> Set.of_list
+         in
+         Format.printf "l %d\n" (Set.length reachable);
+         Format.printf "\n%a\n"
+           (Format.pp_print_list
+              ~pp_sep:(fun ppf () -> Format.pp_print_char ppf '\n')
+              Format.pp_print_int )
+           (reachable |> Set.to_list);
+         (n * n) - n - d -- ((n * n) - n - 1)
+         |> List.filter (fun k -> Set.mem reachable k)
+         |> List.map (fun c -> (state, c + n - 1, d))
+         |> Sequence.of_list )

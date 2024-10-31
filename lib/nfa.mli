@@ -1,5 +1,6 @@
 module Map = Base.Map.Poly
 module Set = Base.Set.Poly
+module Sequence = Base.Sequence
 
 type state = int
 
@@ -32,3 +33,5 @@ val is_graph : t -> bool
 val invert : t -> t
 
 val format_nfa : Format.formatter -> t -> unit
+
+val find_c_d : t -> (int, int) Map.t -> (int * int * int) Sequence.t

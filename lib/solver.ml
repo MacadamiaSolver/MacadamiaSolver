@@ -384,6 +384,20 @@ let dump f =
   let* nfa = eval !s f in
   Format.asprintf "%a" Nfa.format_nfa nfa |> return
 
+let () =
+  let nfa =
+    "Et x = 5t" |> Parser.parse_formula |> Result.get_ok |> eval !s
+    |> Result.get_ok
+  in
+  Format.printf "%a\n" Nfa.format_nfa nfa;
+  let cd =
+    Nfa.find_c_d nfa (Map.of_alist_exn [(0, 1); (5, 1)])
+    |> Base.Sequence.to_list
+  in
+  Format.printf "%d\n" (List.length cd);
+  List.iter (fun (s, c, d) -> Format.printf "%d %d %d\n%!" s c d) cd;
+  ()
+
 let list () =
   let rec aux = function
     | [] ->
