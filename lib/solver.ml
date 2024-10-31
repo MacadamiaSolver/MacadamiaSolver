@@ -289,7 +289,7 @@ let log2 n =
   let rec helper acc = function 0 -> acc | n -> helper (acc + 1) (n / 2) in
   helper 0 n
 
-let pow2 n =
+let _pow2 n =
   match n with
     | 0 ->
         1
@@ -298,9 +298,8 @@ let pow2 n =
 
 (* let chrobak_of_nfa (nfa : 'a Nfa.nfa) : (int * int) list = failwith "" *)
 
-let nfa_for_exponent s var newvar _chrob =
+let _nfa_for_exponent s var newvar _chrob =
   let deg () = Map.length s.vars in
-  let newvar = Map.find_exn s.vars newvar in
   (* chrob *)
   (* |> List.concat_map (fun (a, c) -> *)
   (*        c |> gen_list_n |> List.map (fun d -> (a, d, c)) ) *)
@@ -337,50 +336,49 @@ let nfa_for_exponent s var newvar _chrob =
        |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
   |> Nfa.truncate (deg ())
   |> Result.ok
-
 (* ) *)
 (* |> Base.Result.all *)
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
 
-open Utils
+(* let () = *)
+(*   let s = *)
+(*     { preds= [] *)
+(*     ; vars= Map.of_alist_exn [("x", 0); ("u", 1)] *)
+(*     ; total= 0 *)
+(*     ; progress= 0 } *)
+(*   in *)
+(*   let nfa = *)
+(*     nfa_for_exponent s "x" 1 [(3, 5)] |> Result.get_ok |> Nfa.truncate 32 *)
+(*   in *)
+(*   let s = Format.asprintf "%a" Nfa.format_nfa nfa in *)
+(*   let line = "tmp" in *)
+(*   (* let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in *) *)
+(*   (* let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in *) *)
+(*   let oc = open_out (Format.sprintf "dumps/%s.dot" line) in *)
+(*   (* let command = *) *)
+(*   (*   Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file *) *)
+(*   (*     svg_file svg_file *) *)
+(*   (* in *) *)
+(*   Printf.fprintf oc "%s" s; *)
+(*   close_out oc; *)
+(*   (* Sys.command command |> ignore; *) *)
+(*   let amount = 100 in *)
+(*   Seq.init amount (fun x -> *)
+(*       Nfa.intersect *)
+(*         (NfaCollection.eq_const 0 x 32) *)
+(*         (NfaCollection.eq_const 1 (x |> log2 |> pow2) 32) ) *)
+(*   |> Seq.map (Nfa.intersect nfa) *)
+(*   |> Seq.map (Nfa.truncate 0) *)
+(*   |> Seq.map Nfa.run_nfa *)
+(*   |> Seq.zip (Seq.init amount Fun.id) *)
+(*   (* |> Seq.filter snd |> Seq.take 1 *) *)
+(*   |> Seq.for_all (fun (n, res) -> *)
+(*          Format.printf "%d (%d): %b\n" n (n |> log2 |> pow2) res; *)
+(*          true ) *)
+(*   |> ignore *)
 
-let () =
-  let s =
-    { preds= []
-    ; vars= Map.of_alist_exn [("x", 0); ("u", 1)]
-    ; total= 0
-    ; progress= 0 }
-  in
-  let nfa =
-    nfa_for_exponent s "x" "u" [(3, 5)] |> Result.get_ok |> Nfa.truncate 32
-  in
-  let s = Format.asprintf "%a" Nfa.format_nfa nfa in
-  let line = "tmp" in
-  (* let dot_file = Format.sprintf "dumps/\"%s.dot\"" line in *)
-  (* let svg_file = Format.sprintf "dumps/\"%s.svg\"" line in *)
-  let oc = open_out (Format.sprintf "dumps/%s.dot" line) in
-  (* let command = *)
-  (*   Format.sprintf "mkdir -p dumps/; dot -Tsvg %s > %s; xdg-open %s" dot_file *)
-  (*     svg_file svg_file *)
-  (* in *)
-  Printf.fprintf oc "%s" s;
-  close_out oc;
-  (* Sys.command command |> ignore; *)
-  let amount = 100 in
-  Seq.init amount (fun x ->
-      Nfa.intersect
-        (NfaCollection.eq_const 0 x 32)
-        (NfaCollection.eq_const 1 (x |> log2 |> pow2) 32) )
-  |> Seq.map (Nfa.intersect nfa)
-  |> Seq.map (Nfa.truncate 0)
-  |> Seq.map Nfa.run_nfa
-  |> Seq.zip (Seq.init amount Fun.id)
-  (* |> Seq.filter snd |> Seq.take 1 *)
-  |> Seq.for_all (fun (n, res) ->
-         Format.printf "%d (%d): %b\n" n (n |> log2 |> pow2) res;
-         true )
-  |> ignore
+(* TODO: END OF THING TO REMOVE *)
 
 let dump f =
   let* nfa = eval !s f in
