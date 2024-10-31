@@ -233,6 +233,10 @@ let eval ast =
   let res = eval ast in
   Format.printf "\n%!"; res
 
+let chrobak (nfa: a' Nfa.nfa) =
+    
+
+
 let dump f =
   match eval f with
     | Ok nfa ->

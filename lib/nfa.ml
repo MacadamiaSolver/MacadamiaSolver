@@ -559,3 +559,15 @@ let project f (Nfa nfa) =
             nfa_zero () |> to_nfa )
     | false ->
         nfa*)
+
+let find_minimal_cycles (Nfa nfa) =
+  let rec dfs state visited =
+    let updated_visited = Set.add visited state in
+    let next_states =
+      Map.find_exn nfa.transitions state
+      |> Set.map ~f:(fun (_, s) -> s)
+      |> Set.filter ~f:(fun s -> Set.find updated_visited ~f:(( = ) s) == None)
+    in
+    Set.fold next_states ~init:[] ~f:(fun acc s -> List.concat [acc] (dfs s updated_visited))
+  in
+  ()
