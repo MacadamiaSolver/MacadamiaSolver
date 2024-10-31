@@ -560,14 +560,40 @@ let project f (Nfa nfa) =
     | false ->
         nfa*)
 
-let find_minimal_cycles (Nfa nfa) =
-  let rec dfs state visited =
+let find_strong_components (Nfa nfa) =
+  let rec top_sort state visited =
     let updated_visited = Set.add visited state in
     let next_states =
       Map.find_exn nfa.transitions state
       |> Set.map ~f:(fun (_, s) -> s)
       |> Set.filter ~f:(fun s -> Set.find updated_visited ~f:(( = ) s) == None)
     in
-    Set.fold next_states ~init:[] ~f:(fun acc s -> List.append acc (dfs s updated_visited)) |> List.append [state]
+    Set.fold next_states ~init:[] ~f:(fun acc s ->
+        List.append acc (top_sort s updated_visited) )
+    |> List.append [state]
+  in
+  let states =
+    Map.fold nfa.transitions ~init:Set.empty ~f:(fun ~key ~data acc ->
+        Set.add acc key |> Set.union (data |> Set.map ~f:(fun (_, s) -> s)) )
+  in
+  let order =
+    Set.fold states ~init:[] ~f:(fun order s ->
+        let visited = Set.of_list order in
+        if Set.find ~f:(( = ) s) visited == None then
+          List.append order (top_sort s visited)
+        else order )
+  in
+  let rec mark_comps state comp_idx =
+    let components = Map.empty |> Map.add 
+    let updated_visited = Set.add visited state in
+    let next_states =
+      Map.find_exn nfa.transitions state
+      |> Set.map ~f:(fun (_, s) -> s)
+      |> Set.filter ~f:(fun s -> Set.find updated_visited ~f:(( = ) s) == None)
+    in
+    Set.fold next_states ~init:[] ~f:(fun acc s ->
+        List.append acc (dfs s updated_visited) )
+    |> List.append [state]
+  in
   in
   ()
