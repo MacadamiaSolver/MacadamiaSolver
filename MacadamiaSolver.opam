@@ -16,10 +16,6 @@ depends: [
   "alcotest" {with-test}
   "ocamlformat" {= "0.26.2" & dev}
   "odoc" {with-doc}
-  "pps" {with-test}
-  "ppx_expect" {with-test}
-  "ppx_assert" {with-test}
-  "ppx_inline_assert" {with-test}
 ]
 build: [
   ["dune" "subst"] {dev}
