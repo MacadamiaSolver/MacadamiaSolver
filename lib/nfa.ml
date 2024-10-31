@@ -568,6 +568,6 @@ let find_minimal_cycles (Nfa nfa) =
       |> Set.map ~f:(fun (_, s) -> s)
       |> Set.filter ~f:(fun s -> Set.find updated_visited ~f:(( = ) s) == None)
     in
-    Set.fold next_states ~init:[] ~f:(fun acc s -> List.concat [acc] (dfs s updated_visited))
+    Set.fold next_states ~init:[] ~f:(fun acc s -> List.append acc (dfs s updated_visited)) |> List.append [state]
   in
   ()
