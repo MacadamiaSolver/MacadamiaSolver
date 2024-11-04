@@ -394,8 +394,8 @@ let () =
     Nfa.find_c_d nfa (Map.of_alist_exn [(0, 1); (5, 1)])
     |> Base.Sequence.to_list
   in
-  Format.printf "%d\n" (List.length cd);
-  List.iter (fun (s, c, d) -> Format.printf "%d %d %d\n%!" s c d) cd;
+  Format.printf "List length: %d\n" (List.length cd);
+  List.iter (fun (s, c, d) -> Format.printf "List entry: %d %d %d\n%!" s c d) cd;
   ()
 
 let list () =

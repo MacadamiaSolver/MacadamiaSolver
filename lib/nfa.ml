@@ -89,11 +89,65 @@ module Label = struct
   (*let deg (_, mask) = Bitv.length mask*)
 end
 
-type t =
-  { transitions: (Label.t * state) list array
-  ; final: state Set.t
-  ; start: state Set.t
-  ; deg: deg }
+module Graph = struct
+  type t = (Label.t * state) list array
+
+  let reachable_in_range (graph : t) first last (init : state Set.t) =
+    assert (first <= last);
+    let diff = last - first + 1 in
+    let rec helper n cur =
+      match n with
+        | 0 ->
+            ([cur], 1)
+        | n ->
+            let states =
+              cur |> Set.to_sequence
+              |> Sequence.concat_map ~f:(fun state ->
+                     graph.(state) |> Sequence.of_list |> Sequence.map ~f:snd )
+              |> Set.of_sequence
+            in
+            let next, amount = helper (n - 1) states in
+            if amount < diff then (states :: next, amount + 1)
+            else (next, amount)
+    in
+    helper last init |> fst
+
+  let rec reachable (graph : t) (start : state Set.t) : state Set.t =
+    let next =
+      start |> Set.to_sequence
+      |> Sequence.concat_map ~f:(fun i ->
+             graph.(i) |> List.map snd |> Sequence.of_list )
+      |> Set.of_sequence
+    in
+    let next = Set.diff next start in
+    if Set.is_empty next then start else reachable graph (Set.union start next)
+
+  let reverse (graph : t) : t =
+    graph |> Array.to_list
+    |> List.mapi (fun src list ->
+           list |> List.map (fun (lbl, dst) -> (src, lbl, dst)) )
+    |> List.concat
+    |> List.fold_left
+         (fun lists (dst, lbl, src) ->
+           lists.(src) <- (lbl, dst) :: lists.(src);
+           lists )
+         (Array.init (Array.length graph) (Fun.const []))
+
+  let union_list (graphs : t list) : t =
+    match graphs with
+      | [] ->
+          Array.init 0 (Fun.const [])
+      | hd :: tl ->
+          let len = Array.length hd in
+          tl |> List.iter (fun graph -> assert (Array.length graph = len));
+          let res = Array.init len (Fun.const []) in
+          0 -- pred len
+          |> List.iter (fun i ->
+                 res.(i) <- graphs |> List.concat_map (fun graph -> graph.(i)) );
+          res
+end
+
+type t = {transitions: Graph.t; final: state Set.t; start: state Set.t; deg: deg}
 
 let length nfa = Array.length nfa.transitions
 
@@ -131,13 +185,18 @@ let update_final_states_nfa nfa =
 
 let create_nfa ~(transitions : (state * int * state) list) ~(start : state list)
     ~(final : state list) ~(vars : int list) ~(deg : int) =
+  let max =
+    transitions
+    |> List.map (fun (fst, _, snd) -> max fst snd)
+    |> List.fold_left max 0
+  in
   let transitions =
     transitions
     |> List.fold_left
          (fun lists (src, lbl, dst) ->
            lists.(src) <- (lbl, dst) :: lists.(src);
            lists )
-         (Array.init deg (Fun.const []))
+         (Array.init (max + 1) (Fun.const []))
     |> Array.map (fun delta ->
            List.filter_map
              (fun (label, q') ->
@@ -391,23 +450,11 @@ let invert nfa =
   ({final; start= dfa.start; transitions= dfa.transitions; deg= dfa.deg} : t)
 
 let find_c_d (nfa : t) (imp : (int, int) Map.t) =
-  let n = length nfa in
-  let transitions = Array.map (List.map snd) nfa.transitions in
   assert (Set.length nfa.start = 1);
-  let rec reachable_in n (cur : state Set.t) =
-    match n with
-      | 0 ->
-          [cur]
-      | n ->
-          let states =
-            cur |> Set.to_sequence
-            |> Sequence.concat_map ~f:(fun state ->
-                   transitions.(state) |> Sequence.of_list )
-            |> Set.of_sequence
-          in
-          states :: reachable_in (n - 1) states
-  in
-  let states = reachable_in (n - 1) nfa.start |> List.hd in
+  let n = length nfa in
+  let reachable_in_range = Graph.reachable_in_range nfa.transitions in
+  let reachable_in n init = reachable_in_range n n init |> List.hd in
+  let states = reachable_in (n - 1) nfa.start in
   let states =
     states |> Set.to_sequence
     |> Sequence.filter_map ~f:(fun state ->
@@ -415,18 +462,51 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
   in
   states
   |> Sequence.concat_map ~f:(fun (state, d) ->
-         let reachable =
-           reachable_in ((n * n) - n - 1) (Set.singleton state)
-           |> List.mapi (fun i set -> (i, Set.are_disjoint nfa.final set))
-           |> List.filter snd |> List.map fst |> Set.of_list
-         in
-         Format.printf "l %d\n" (Set.length reachable);
-         Format.printf "\n%a\n"
-           (Format.pp_print_list
-              ~pp_sep:(fun ppf () -> Format.pp_print_char ppf '\n')
-              Format.pp_print_int )
-           (reachable |> Set.to_list);
-         (n * n) - n - d -- ((n * n) - n - 1)
-         |> List.filter (fun k -> Set.mem reachable k)
+         let first = (n * n) - n - d in
+         let last = (n * n) - n - 1 in
+         reachable_in_range first last (Set.singleton state)
+         |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
+         |> Base.List.zip_exn (first -- last)
+         |> List.filter snd |> List.map fst
          |> List.map (fun c -> (state, c + n - 1, d))
          |> Sequence.of_list )
+
+let get_exponent_sub_nfa (nfa : t) (res : int) (pow : int) (temp : int) : t =
+  let mask = Bitv.init nfa.deg (fun x -> x = res || x = pow || x = temp) in
+  let zero_lbl = (Bitv.init nfa.deg (Fun.const false), mask) in
+  let res_lbl = (Bitv.init nfa.deg (( = ) res), mask) in
+  let pow_lbl = (Bitv.init nfa.deg (( <> ) res), mask) in
+  let reversed_transitions = nfa.transitions |> Graph.reverse in
+  let end_transitions =
+    reversed_transitions
+    |> Array.mapi (fun src list ->
+           if Set.mem nfa.final src then
+             list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
+           else [] )
+  in
+  let pre_final =
+    end_transitions |> Array.to_list |> List.concat |> List.map snd
+    |> Set.of_list
+  in
+  let zero_transitions =
+    reversed_transitions
+    |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+  in
+  let states = Graph.reachable zero_transitions pre_final in
+  let start_transitions =
+    reversed_transitions
+    |> Array.mapi (fun src list ->
+           if Set.mem states src then
+             list |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
+           else [] )
+  in
+  let start =
+    0 -- Array.length start_transitions
+    |> List.filter (fun i -> start_transitions.(i) |> List.is_empty |> not)
+    |> Set.of_list
+  in
+  let transitions =
+    Graph.union_list [end_transitions; zero_transitions; start_transitions]
+    |> Graph.reverse
+  in
+  {transitions; final= nfa.final; start; deg= nfa.deg}
