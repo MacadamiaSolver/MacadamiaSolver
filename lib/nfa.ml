@@ -84,7 +84,11 @@ module Label = struct
   let z _ = (Bitv.init 32 (fun _ -> false), Bitv.init 32 (fun _ -> false))
 
   let pp_label ppf (vec, mask) =
-    Format.fprintf ppf "%a %a" Bitv.L.print vec Bitv.L.print mask
+    let vec = Bitv.L.to_string vec |> String.to_seq in
+    let mask = Bitv.L.to_string mask |> String.to_seq in
+    Seq.zip vec mask
+    |> Seq.map (function _, '0' -> '_' | x, _ -> x)
+    |> String.of_seq |> Format.fprintf ppf "%s"
 
   (*let deg (_, mask) = Bitv.length mask*)
 end
