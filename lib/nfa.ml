@@ -324,15 +324,12 @@ let truncate l nfa =
       fprintf ppf "%a=%a\\n" format_var key format_bit data )*)
 
 let format_nfa ppf nfa =
-  let states = states nfa in
   let format_state ppf state = fprintf ppf "%d" state in
-  let states = Set.diff states nfa.final in
-  let states = Set.diff states nfa.start in
   let start_final = Set.inter nfa.start nfa.final in
   let start = Set.diff nfa.start start_final in
   let final = Set.diff nfa.final start_final in
   fprintf ppf "digraph {\n";
-  Set.iter states ~f:(fprintf ppf "\"%a\" [shape=circle]\n" format_state);
+  fprintf ppf "node [shape=circle]\n";
   Set.iter final ~f:(fprintf ppf "\"%a\" [shape=doublecircle]\n" format_state);
   Set.iter start ~f:(fprintf ppf "\"%a\" [shape=octagon]\n" format_state);
   Set.iter start_final
