@@ -15,7 +15,7 @@ let add ~lhs ~rhs ~sum _ =
       ; (1, 0b010, 1)
       ; (1, 0b001, 1)
       ; (1, 0b100, 0) ]
-    ~start:[0] ~final:[0] ~vars:[lhs; rhs; sum] ~deg:32
+    ~start:[0] ~final:[0] ~vars:[sum; rhs; lhs] ~deg:32
 
 let eq lhs rhs _ =
   Nfa.create_nfa
@@ -49,7 +49,7 @@ let leq lhs rhs _ =
       ; (1, 0b00, 1)
       ; (1, 0b01, 1)
       ; (1, 0b10, 0) ]
-    ~start:[0] ~final:[0] ~vars:[lhs; rhs] ~deg:32
+    ~start:[0] ~final:[0] ~vars:[rhs; lhs] ~deg:32
 
 let geq x y = leq y x
 

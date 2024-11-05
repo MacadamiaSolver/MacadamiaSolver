@@ -189,6 +189,7 @@ let update_final_states_nfa nfa =
 
 let create_nfa ~(transitions : (state * int * state) list) ~(start : state list)
     ~(final : state list) ~(vars : int list) ~(deg : int) =
+  let vars = List.rev vars in
   let max =
     transitions
     |> List.map (fun (fst, _, snd) -> max fst snd)
@@ -472,7 +473,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
          |> List.map (fun c -> (state, c + n - 1, d))
          |> Sequence.of_list )
 
-let get_exponent_sub_nfa (nfa : t) (res : int) (pow : int) (temp : int) : t =
+let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
   let mask = Bitv.init nfa.deg (fun x -> x = res || x = pow || x = temp) in
   let zero_lbl = (Bitv.init nfa.deg (Fun.const false), mask) in
   let res_lbl = (Bitv.init nfa.deg (( = ) res), mask) in
@@ -502,8 +503,8 @@ let get_exponent_sub_nfa (nfa : t) (res : int) (pow : int) (temp : int) : t =
            else [] )
   in
   let start =
-    0 -- Array.length start_transitions
-    |> List.filter (fun i -> start_transitions.(i) |> List.is_empty |> not)
+    0 -- pred (Array.length start_transitions)
+    |> List.concat_map (fun i -> start_transitions.(i) |> List.map snd)
     |> Set.of_list
   in
   let transitions =
@@ -511,3 +512,24 @@ let get_exponent_sub_nfa (nfa : t) (res : int) (pow : int) (temp : int) : t =
     |> Graph.reverse
   in
   {transitions; final= nfa.final; start; deg= nfa.deg}
+
+let () =
+  let res = 0 in
+  let pow = 1 in
+  let temp = 2 in
+  let nfa =
+    create_nfa
+      ~transitions:
+        [ (6, 0b010, 0)
+        ; (6, 0b000, 1)
+        ; (0, 0b011, 2)
+        ; (1, 0b011, 2)
+        ; (2, 0b000, 3)
+        ; (2, 0b000, 4)
+        ; (3, 0b100, 5)
+        ; (4, 0b100, 5) ]
+      ~start:[6] ~final:[5] ~vars:[res; pow; temp] ~deg:32
+  in
+  let sub_nfa = get_exponent_sub_nfa nfa ~res ~pow ~temp in
+  Format.printf "%a\n" format_nfa sub_nfa;
+  ()
