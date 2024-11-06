@@ -116,7 +116,7 @@ module Graph = struct
     in
     helper last init |> fst
 
-  let rec reachable (graph : t) (start : state Set.t) : state Set.t =
+  let rec _reachable (graph : t) (start : state Set.t) : state Set.t =
     let next =
       start |> Set.to_sequence
       |> Sequence.concat_map ~f:(fun i ->
@@ -124,7 +124,7 @@ module Graph = struct
       |> Set.of_sequence
     in
     let next = Set.diff next start in
-    if Set.is_empty next then start else reachable graph (Set.union start next)
+    if Set.is_empty next then start else _reachable graph (Set.union start next)
 
   let reverse (graph : t) : t =
     graph |> Array.to_list
@@ -490,26 +490,41 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
     end_transitions |> Array.to_list |> List.concat |> List.map snd
     |> Set.of_list
   in
-  let zero_transitions =
-    reversed_transitions
-    |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
-  in
-  let states = Graph.reachable zero_transitions pre_final in
-  let start_transitions =
-    reversed_transitions
-    |> Array.mapi (fun src list ->
-           if Set.mem states src then
-             list |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
-           else [] )
+  let zero_transitions, states =
+    let all_zero_transitions =
+      reversed_transitions
+      |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+    in
+    let rec helper acc visited cur =
+      if Set.is_empty cur then (acc, visited)
+      else
+        let next_transitions =
+          all_zero_transitions
+          |> Base.Array.mapi ~f:(fun i x -> if Set.mem cur i then x else [])
+        in
+        next_transitions
+        |> Base.Array.iteri ~f:(fun i list -> acc.(i) <- list @ acc.(i));
+        let visited = Set.union visited cur in
+        let next =
+          Set.diff
+            ( next_transitions |> Array.to_list
+            |> List.concat_map (List.map snd)
+            |> Set.of_list )
+            visited
+        in
+        helper acc visited next
+    in
+    helper (Array.map (Fun.const []) all_zero_transitions) Set.empty pre_final
   in
   let start =
-    0 -- pred (Array.length start_transitions)
-    |> List.concat_map (fun i -> start_transitions.(i) |> List.map snd)
-    |> Set.of_list
+    states
+    |> Set.filter ~f:(fun i ->
+           reversed_transitions.(i)
+           |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
+           |> List.is_empty |> not )
   in
   let transitions =
-    Graph.union_list [end_transitions; zero_transitions; start_transitions]
-    |> Graph.reverse
+    Graph.union_list [end_transitions; zero_transitions] |> Graph.reverse
   in
   {transitions; final= nfa.final; start; deg= nfa.deg}
 
