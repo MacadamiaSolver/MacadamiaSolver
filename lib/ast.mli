@@ -11,6 +11,7 @@ type term =
   | Const of int
   | Add of term * term
   | Mul of int * term
+  | Pow of int * term
 
 type formula =
   | Pred of predname * term list
@@ -27,6 +28,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
+  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
@@ -43,6 +45,8 @@ val const : int -> term
 val add : term -> term -> term
 
 val mul : int -> term -> term
+
+val pow : int -> term -> term
 
 val pred : predname -> term list -> formula
 

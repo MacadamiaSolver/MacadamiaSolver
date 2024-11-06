@@ -1,5 +1,6 @@
 module Map = Base.Map.Poly
 module Set = Base.Set.Poly
+module Sequence = Base.Sequence
 
 type state = int
 
@@ -10,7 +11,7 @@ type deg = int
 type t
 
 val create_nfa :
-     transitions:(int * state) list list
+     transitions:(state * int * state) list
   -> start:state list
   -> final:state list
   -> vars:int list
@@ -34,3 +35,7 @@ val is_graph : t -> bool
 val invert : t -> t
 
 val format_nfa : Format.formatter -> t -> unit
+
+val find_c_d : t -> (int, int) Map.t -> (int * int * int) Sequence.t
+
+val get_exponent_sub_nfa : t -> res:int -> pow:int -> temp:int -> t

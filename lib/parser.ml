@@ -37,14 +37,19 @@ let bin_op op ast p =
 
 let opt q p = q p <|> p
 
-let mul term =
+let pow term =
   let* c = integer <* whitespace in
   let* body = term in
   Ast.mul c body |> return
 
+let mul term =
+  let* c = integer <* whitespace <* string "**" <* whitespace in
+  let* body = term in
+  Ast.pow c body |> return
+
 let term =
   fix (fun term ->
-      parens term <|> const <|> var |> opt mul |> bin_op "+" Ast.add )
+      parens term <|> const <|> var |> opt pow |> opt mul |> bin_op "+" Ast.add )
 
 let pred =
   let* name = ident <* whitespace in

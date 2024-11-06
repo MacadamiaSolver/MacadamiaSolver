@@ -11,6 +11,7 @@ type term =
   | Const of int
   | Add of term * term
   | Mul of int * term
+  | Pow of int * term
 
 type formula =
   | Pred of predname * term list
@@ -27,6 +28,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
+  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
@@ -43,6 +45,8 @@ let const x = Const x
 let add x y = Add (x, y)
 
 let mul x y = Mul (x, y)
+
+let pow x y = Pow (x, y)
 
 let pred n p = Pred (n, p)
 
@@ -93,6 +97,8 @@ let rec pp_term ppf = function
       Format.fprintf ppf "(%a + %a)" pp_term a pp_term b
   | Mul (a, b) ->
       Format.fprintf ppf "(%d * %a)" a pp_term b
+  | Pow (a, b) ->
+      Format.fprintf ppf "(%d ** %a)" a pp_term b
 
 let rec pp_formula ppf = function
   | Pred (a, b) ->
@@ -131,6 +137,8 @@ let rec pp_formula ppf = function
            ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
            Format.pp_print_string )
         a pp_formula b
+  | Pow2 a ->
+      Format.fprintf ppf "(Pow2 %a)" pp_term a
 
 let quantifier_ast_exn = function
   | Exists _ ->
@@ -200,6 +208,8 @@ let map ff ft f =
         Mul (a, mapt t1) |> ft
     | Add (t1, t2) ->
         Add (mapt t1, mapt t2) |> ft
+    | Pow (a, t1) ->
+        Pow (a, mapt t1) |> ft
   in
   let rec mapf = function
     | Eq (t1, t2) ->

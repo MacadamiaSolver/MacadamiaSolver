@@ -20,3 +20,9 @@ let rec zip3 n1 n2 n3 =
     let tl2 = if List.is_empty n2 then [] else List.tl n2 in
     let tl3 = if List.is_empty n3 then [] else List.tl n3 in
     (h1, h2, h3) :: zip3 tl1 tl2 tl3
+
+let pp_print_bit ppf = function
+  | I ->
+      Format.fprintf ppf "1"
+  | O ->
+      Format.fprintf ppf "0"

@@ -84,7 +84,11 @@ module Label = struct
   let z _ = (Bitv.init 32 (fun _ -> false), Bitv.init 32 (fun _ -> false))
 
   let pp_label ppf (vec, mask) =
-    Format.fprintf ppf "%a %a" Bitv.L.print vec Bitv.L.print mask
+    let vec = Bitv.L.to_string vec |> String.to_seq in
+    let mask = Bitv.L.to_string mask |> String.to_seq in
+    Seq.zip vec mask
+    |> Seq.map (function _, '0' -> '_' | x, _ -> x)
+    |> String.of_seq |> Format.fprintf ppf "%s"
 
   let map f (vec, mask) deg =
     (*let vec = Bitv.init (fun n -> ) deg in*)
@@ -93,11 +97,65 @@ module Label = struct
   (*let deg (_, mask) = Bitv.length mask*)
 end
 
-type t =
-  { transitions: (Label.t * state) list array
-  ; final: state Set.t
-  ; start: state Set.t
-  ; deg: deg }
+module Graph = struct
+  type t = (Label.t * state) list array
+
+  let reachable_in_range (graph : t) first last (init : state Set.t) =
+    assert (first <= last);
+    let diff = last - first + 1 in
+    let rec helper n cur =
+      match n with
+        | 0 ->
+            ([cur], 1)
+        | n ->
+            let states =
+              cur |> Set.to_sequence
+              |> Sequence.concat_map ~f:(fun state ->
+                     graph.(state) |> Sequence.of_list |> Sequence.map ~f:snd )
+              |> Set.of_sequence
+            in
+            let next, amount = helper (n - 1) states in
+            if amount < diff then (states :: next, amount + 1)
+            else (next, amount)
+    in
+    helper last init |> fst
+
+  let rec _reachable (graph : t) (start : state Set.t) : state Set.t =
+    let next =
+      start |> Set.to_sequence
+      |> Sequence.concat_map ~f:(fun i ->
+             graph.(i) |> List.map snd |> Sequence.of_list )
+      |> Set.of_sequence
+    in
+    let next = Set.diff next start in
+    if Set.is_empty next then start else _reachable graph (Set.union start next)
+
+  let reverse (graph : t) : t =
+    graph |> Array.to_list
+    |> List.mapi (fun src list ->
+           list |> List.map (fun (lbl, dst) -> (src, lbl, dst)) )
+    |> List.concat
+    |> List.fold_left
+         (fun lists (dst, lbl, src) ->
+           lists.(src) <- (lbl, dst) :: lists.(src);
+           lists )
+         (Array.init (Array.length graph) (Fun.const []))
+
+  let union_list (graphs : t list) : t =
+    match graphs with
+      | [] ->
+          Array.init 0 (Fun.const [])
+      | hd :: tl ->
+          let len = Array.length hd in
+          tl |> List.iter (fun graph -> assert (Array.length graph = len));
+          let res = Array.init len (Fun.const []) in
+          0 -- pred len
+          |> List.iter (fun i ->
+                 res.(i) <- graphs |> List.concat_map (fun graph -> graph.(i)) );
+          res
+end
+
+type t = {transitions: Graph.t; final: state Set.t; start: state Set.t; deg: deg}
 
 let length nfa = Array.length nfa.transitions
 
@@ -133,17 +191,27 @@ let update_final_states_nfa nfa =
   ; final= nfa.final |> get_extended_final_states nfa.transitions
   ; deg= nfa.deg }
 
-let create_nfa ~(transitions : (int * state) list list) ~(start : state list)
+let create_nfa ~(transitions : (state * int * state) list) ~(start : state list)
     ~(final : state list) ~(vars : int list) ~(deg : int) =
+  let vars = List.rev vars in
+  let max =
+    transitions
+    |> List.map (fun (fst, _, snd) -> max fst snd)
+    |> List.fold_left max 0
+  in
   let transitions =
     transitions
-    |> List.map (fun delta ->
+    |> List.fold_left
+         (fun lists (src, lbl, dst) ->
+           lists.(src) <- (lbl, dst) :: lists.(src);
+           lists )
+         (Array.init (max + 1) (Fun.const []))
+    |> Array.map (fun delta ->
            List.filter_map
              (fun (label, q') ->
                let* vec = stretch (Bitv.of_int_us label) vars deg in
                ((vec, Bitv.of_list_with_length vars deg), q') |> return )
              delta )
-    |> Array.of_list
   in
   {transitions; final= Set.of_list final; start= Set.of_list start; deg}
   |> update_final_states_nfa
@@ -270,15 +338,12 @@ let truncate l nfa =
       fprintf ppf "%a=%a\\n" format_var key format_bit data )*)
 
 let format_nfa ppf nfa =
-  let states = states nfa in
   let format_state ppf state = fprintf ppf "%d" state in
-  let states = Set.diff states nfa.final in
-  let states = Set.diff states nfa.start in
   let start_final = Set.inter nfa.start nfa.final in
   let start = Set.diff nfa.start start_final in
   let final = Set.diff nfa.final start_final in
   fprintf ppf "digraph {\n";
-  Set.iter states ~f:(fprintf ppf "\"%a\" [shape=circle]\n" format_state);
+  fprintf ppf "node [shape=circle]\n";
   Set.iter final ~f:(fprintf ppf "\"%a\" [shape=doublecircle]\n" format_state);
   Set.iter start ~f:(fprintf ppf "\"%a\" [shape=octagon]\n" format_state);
   Set.iter start_final
@@ -394,3 +459,101 @@ let invert nfa =
   let states = states dfa in
   let final = Set.diff states dfa.final in
   ({final; start= dfa.start; transitions= dfa.transitions; deg= dfa.deg} : t)
+
+let find_c_d (nfa : t) (imp : (int, int) Map.t) =
+  assert (Set.length nfa.start = 1);
+  let n = length nfa in
+  let reachable_in_range = Graph.reachable_in_range nfa.transitions in
+  let reachable_in n init = reachable_in_range n n init |> List.hd in
+  let states = reachable_in (n - 1) nfa.start in
+  let states =
+    states |> Set.to_sequence
+    |> Sequence.filter_map ~f:(fun state ->
+           Map.find imp state |> Option.map (fun d -> (state, d)) )
+  in
+  states
+  |> Sequence.concat_map ~f:(fun (state, d) ->
+         let first = (n * n) - n - d in
+         let last = (n * n) - n - 1 in
+         reachable_in_range first last (Set.singleton state)
+         |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
+         |> Base.List.zip_exn (first -- last)
+         |> List.filter snd |> List.map fst
+         |> List.map (fun c -> (state, c + n - 1, d))
+         |> Sequence.of_list )
+
+let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
+  let mask = Bitv.init nfa.deg (fun x -> x = res || x = pow || x = temp) in
+  let zero_lbl = (Bitv.init nfa.deg (Fun.const false), mask) in
+  let res_lbl = (Bitv.init nfa.deg (( = ) res), mask) in
+  let pow_lbl = (Bitv.init nfa.deg (( <> ) res), mask) in
+  let reversed_transitions = nfa.transitions |> Graph.reverse in
+  let end_transitions =
+    reversed_transitions
+    |> Array.mapi (fun src list ->
+           if Set.mem nfa.final src then
+             list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
+           else [] )
+  in
+  let pre_final =
+    end_transitions |> Array.to_list |> List.concat |> List.map snd
+    |> Set.of_list
+  in
+  let zero_transitions, states =
+    let all_zero_transitions =
+      reversed_transitions
+      |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+    in
+    let rec helper acc visited cur =
+      if Set.is_empty cur then (acc, visited)
+      else
+        let next_transitions =
+          all_zero_transitions
+          |> Base.Array.mapi ~f:(fun i x -> if Set.mem cur i then x else [])
+        in
+        next_transitions
+        |> Base.Array.iteri ~f:(fun i list -> acc.(i) <- list @ acc.(i));
+        let visited = Set.union visited cur in
+        let next =
+          Set.diff
+            ( next_transitions |> Array.to_list
+            |> List.concat_map (List.map snd)
+            |> Set.of_list )
+            visited
+        in
+        helper acc visited next
+    in
+    helper (Array.map (Fun.const []) all_zero_transitions) Set.empty pre_final
+  in
+  let start =
+    states
+    |> Set.filter ~f:(fun i ->
+           reversed_transitions.(i)
+           |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
+           |> List.is_empty |> not )
+  in
+  let transitions =
+    Graph.union_list [end_transitions; zero_transitions] |> Graph.reverse
+  in
+  {transitions; final= nfa.final; start; deg= nfa.deg}
+
+let () =
+  let res = 0 in
+  let pow = 1 in
+  let temp = 2 in
+  let nfa =
+    create_nfa
+      ~transitions:
+        [ (6, 0b010, 0)
+        ; (6, 0b000, 1)
+        ; (0, 0b011, 2)
+        ; (1, 0b011, 2)
+        ; (2, 0b000, 3)
+        ; (2, 0b000, 4)
+        ; (3, 0b100, 5)
+        ; (4, 0b100, 5) ]
+      ~start:[6] ~final:[5] ~vars:[res; pow; temp] ~deg:32
+  in
+  let sub_nfa = get_exponent_sub_nfa nfa ~res ~pow ~temp in
+  Format.printf "%a\n" format_nfa sub_nfa;
+  ()
