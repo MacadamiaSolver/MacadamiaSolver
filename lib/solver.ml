@@ -178,10 +178,6 @@ let teval s ast =
   internal_counter := Map.length s.vars;
   nfa
 
-(* let gen_list_n n = *)
-(*   let rec helper acc = function 0 -> [0] | n -> helper (n :: acc) (n - 1) in *)
-(*   helper [] n |> List.rev *)
-
 let eval s ast =
   let vars = collect ast in
   List.iter (fun (x, y) -> Format.printf "%s=%i\n" x y) (vars |> Map.to_alist);
@@ -296,48 +292,47 @@ let _pow2 n =
     | n ->
         List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
 
-(* let chrobak_of_nfa (nfa : 'a Nfa.nfa) : (int * int) list = failwith "" *)
+let gen_list_n n =
+  let rec helper acc = function 0 -> [0] | n -> helper (n :: acc) (n - 1) in
+  helper [] n |> List.rev
 
-let _nfa_for_exponent s var newvar _chrob =
+let _nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
-  (* chrob *)
-  (* |> List.concat_map (fun (a, c) -> *)
-  (*        c |> gen_list_n |> List.map (fun d -> (a, d, c)) ) *)
-  (* |> (Fun.flip List.nth) 1 *)
-  (* |> (fun (a, d, c) -> *)
-  let a = 3 in
-  let d = 1 in
-  let c = 5 in
-  let ast =
-    Ast.Exists
-      ( var ^ "$"
-      , Eq (Var var, Add (Add (Const a, Const d), Mul (c, Var (var ^ "$")))) )
-  in
-  let s =
-    { s with
-      vars=
-        Map.add_exn ~key:(var ^ "$")
-          ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
-          s.vars }
-  in
-  let* nfa = eval s ast in
-  let n =
-    List.init a (( + ) (a + 1))
-    |> List.filter (fun x -> x - log2 x >= a)
-    |> List.hd
-  in
-  Format.printf "\n%d\n%!" n;
-  let internal = internal s in
-  nfa |> Nfa.truncate 32
-  |> Nfa.intersect (NfaCollection.torename newvar d c)
-     (* TODO: add minimization here *)
-  |> Nfa.intersect
-       ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
-       |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
-  |> Nfa.truncate (deg ())
-  |> Result.ok
-(* ) *)
-(* |> Base.Result.all *)
+  chrob
+  |> List.concat_map (fun (a, c) ->
+         c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
+  |> List.map (fun (a, d, c) ->
+         let ast =
+           Ast.Exists
+             ( var ^ "$"
+             , Eq
+                 ( Var var
+                 , Add (Add (Const a, Const d), Mul (c, Var (var ^ "$"))) ) )
+         in
+         let s =
+           { s with
+             vars=
+               Map.add_exn ~key:(var ^ "$")
+                 ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
+                 s.vars }
+         in
+         let* nfa = eval s ast in
+         let n =
+           List.init a (( + ) (a + 1))
+           |> List.filter (fun x -> x - log2 x >= a)
+           |> List.hd
+         in
+         Format.printf "\n%d\n%!" n;
+         let internal = internal s in
+         nfa |> Nfa.truncate 32
+         |> Nfa.intersect (NfaCollection.torename newvar d c)
+            (* TODO: add minimization here *)
+         |> Nfa.intersect
+              ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
+              |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
+         |> Nfa.truncate (deg ())
+         |> Result.ok )
+  |> Base.Result.all
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
 
