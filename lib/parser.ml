@@ -1,7 +1,5 @@
 (** Copyright 2024, MacadamiaSolver. *)
-
 (** SPDX-License-Identifier: MIT *)
-
 open Angstrom
 
 let is_whitespace = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
@@ -68,7 +66,7 @@ let quantifier sym ast formula =
   let* _ = char sym in
   let* var = ident in
   let* formula = whitespace *> formula in
-  ast var formula |> return
+  ast [var] formula |> return
 
 let formula =
   fix (fun formula ->

@@ -86,6 +86,10 @@ module Label = struct
   let pp_label ppf (vec, mask) =
     Format.fprintf ppf "%a %a" Bitv.L.print vec Bitv.L.print mask
 
+  let map f (vec, mask) deg =
+    (*let vec = Bitv.init (fun n -> ) deg in*)
+    (*let mask = Bitv.init (fun n -> ) deg in*)
+    return (vec, mask)
   (*let deg (_, mask) = Bitv.length mask*)
 end
 
@@ -146,11 +150,16 @@ let create_nfa ~(transitions : (int * state) list list) ~(start : state list)
 
 let run_nfa nfa = Set.are_disjoint nfa.start nfa.final |> not
 
-(*let map_vars _ nfa =
+let map_labels f nfa =
+  let transitions =
+    nfa.transitions
+    |> Array.map (fun delta ->
+           List.map (fun (label, q') -> (Label.map f label, q')) delta )
+  in
   { start= nfa.start
   ; final= nfa.final
   ; transitions= nfa.transitions
-  ; deg= nfa.deg }*)
+  ; deg= nfa.deg }
 
 let intersect nfa1 nfa2 =
   assert (nfa1.deg = nfa2.deg);

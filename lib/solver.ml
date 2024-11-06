@@ -2,7 +2,8 @@ module Set = Base.Set.Poly
 module Map = Base.Map.Poly
 
 type t =
-  { preds: (string * string list * Ast.formula * Nfa.t) list
+  { preds:
+      (string * string list * Ast.formula * Nfa.t * (string, int) Map.t) list
   ; vars: (string, int) Map.t
   ; total: int
   ; progress: int }
@@ -14,40 +15,20 @@ let return = Result.ok
 let s = ref {preds= []; vars= Map.empty; total= 0; progress= 0}
 
 let collect f =
-  let rec collect_term = function
-    | Ast.Const _ ->
-        Set.empty
-    | Ast.Var x ->
-        Set.singleton x
-    | Ast.Add (t1, t2) ->
-        Set.union (collect_term t1) (collect_term t2)
-    | Ast.Mul (_, t1) ->
-        collect_term t1
-  in
-  let rec collect_formula = function
-    | Ast.Eq (t1, t2)
-    | Ast.Lt (t1, t2)
-    | Ast.Gt (t1, t2)
-    | Ast.Leq (t1, t2)
-    | Ast.Geq (t1, t2)
-    | Ast.Neq (t1, t2) ->
-        Set.union (collect_term t1) (collect_term t2)
-    | Ast.Mor (f1, f2) | Ast.Mand (f1, f2) | Ast.Mimpl (f1, f2) ->
-        Set.union (collect_formula f1) (collect_formula f2)
-    | Ast.Mnot f1 ->
-        collect_formula f1
-    | Ast.Exists (x, f1) | Ast.Any (x, f1) ->
-        Set.add (collect_formula f1) x
-    | Ast.Pred (_, args) ->
-        List.fold_left
-          (fun acc x -> Set.union acc (collect_term x))
-          Set.empty args
-    | _ ->
-        Set.empty
-  in
-  collect_formula f |> Set.to_list
+  Ast.fold
+    (fun acc ast ->
+      match ast with
+        | Ast.Exists (xs, _) | Ast.Any (xs, _) ->
+            Set.union acc (Set.of_list xs)
+        | _ ->
+            acc )
+    (fun acc x -> match x with Ast.Var x -> Set.add acc x | _ -> acc)
+    Set.empty f
+  |> Set.to_list
   |> List.mapi (fun i x -> (x, i))
   |> Map.of_alist_exn
+
+let estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
 
 (*let estimate f =
     let rec estimate_term = function
@@ -180,7 +161,6 @@ let teval s ast =
 
 let eval s ast =
   let vars = collect ast in
-  List.iter (fun (x, y) -> Format.printf "%s=%i\n" x y) (vars |> Map.to_alist);
   let s = {preds= s.preds; vars; total= 0; progress= 0} in
   let deg () = Map.length s.vars in
   let var_exn v = Map.find_exn s.vars v in
@@ -225,64 +205,41 @@ let eval s ast =
             Nfa.unite (la |> Nfa.invert) ra |> return
         | Ast.Exists (x, f) ->
             let* nfa = eval f in
-            let x = var_exn x in
-            nfa |> Nfa.project [x] |> return
+            let x = List.map var_exn x in
+            nfa |> Nfa.project x |> return
         | Ast.Any (x, f) ->
             let* nfa = eval f in
-            let var = var_exn x in
-            nfa |> Nfa.invert |> Nfa.project [var] |> Nfa.invert |> return
-        (*| Ast.Pred (name, args) -> (
-            let args = List.map (teval s) args in
-            match
+            let x = List.map var_exn x in
+            nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> return
+        | Ast.Pred (name, args) ->
+            let* _, pred_params, _, pred_nfa, pred_vars =
               List.find_opt
-                (fun (pred_name, _, _, _) -> pred_name = name)
+                (fun (pred_name, _, _, _, _) -> pred_name = name)
                 s.preds
-            with
-              | Some (_, pred_params, _, pred_nfa) ->
-                  let nfa =
-                    pred_nfa
-                    |> Nfa.map_varname (function
-                         | Var s -> (
-                           match List.find_index (( = ) s) pred_params with
-                             | Some i -> (
-                               match List.nth_opt args i with
-                                 | Some (av, _) ->
-                                     av
-                                 | None ->
-                                     Var s )
-                             | None ->
-                                 Var s )
-                         | x ->
-                             x )
-                    |> List.fold_right
-                         (fun acc a -> Nfa.intersect acc a)
-                         (List.map (fun (_, arg) -> arg) args)
-                    |> Nfa.project (function
-                         | Var _ ->
-                             true
-                         | Internal _ ->
-                             false )
-                  in
-                  Result.ok nfa
-              | None ->
-                  Printf.sprintf "Unknown predicate %s" name |> Result.error )*)
+              |> Option.to_result
+                   ~none:(Format.sprintf "Unknown predicate: %s" name)
+            in
+            let args = List.map (teval s) args in
+            let nfa = pred_nfa in
+            nfa |> return
         | _ ->
             failwith "unimplemented"
     in
     nfa
   in
-  let res = eval ast in
-  Format.printf "\n%!"; res
+  let* res = eval ast in
+  Format.printf "\n%!";
+  (res, vars) |> return
 
 let dump f =
-  let* nfa = eval !s f in
+  let* nfa, _ = eval !s f in
   Format.asprintf "%a" Nfa.format_nfa nfa |> return
 
 let list () =
   let rec aux = function
     | [] ->
         ()
-    | (name, params, f, _) :: xs ->
+    | (name, params, f, _, _) :: xs ->
         Format.printf "%s %a = %a\n%!" name
           (Format.pp_print_list Format.pp_print_string)
           params Ast.pp_formula f;
@@ -291,14 +248,52 @@ let list () =
   aux !s.preds
 
 let pred name params f =
-  let* nfa = eval !s f in
+  let* nfa, vars = eval !s f in
   s :=
-    { preds= (name, params, f, nfa) :: !s.preds
+    { preds= (name, params, f, nfa, vars) :: !s.preds
     ; total= !s.total
     ; vars= !s.vars
     ; progress= !s.progress };
   return ()
 
 let proof f =
-  let* nfa = eval !s f in
+  let* nfa, _ = f |> Optimizer.optimize |> eval !s in
   Nfa.run_nfa nfa |> return
+
+let%expect_test "Proof any x > 7 can be represented as a linear combination of \
+                 3 and 5" =
+  Format.printf "%b"
+    ( {|AxEyEz x = 3y + 5z | x <= 7|} |> Parser.parse_formula |> Result.get_ok
+    |> proof |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Disproof any x > 6 can be represented as a linear combination \
+                 of 3 and 5" =
+  Format.printf "%b"
+    ( {|AxEyEz x = 3y + 5z | x <= 6|} |> Parser.parse_formula |> Result.get_ok
+    |> proof |> Result.get_ok );
+  [%expect {| false |}]
+
+let%expect_test "Proof for all x exists x + 1" =
+  Format.printf "%b"
+    ( {|AxEy y = x + 1|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Disproof for all x exists x - 1" =
+  Format.printf "%b"
+    ( {|AxEy x = y + 1|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| false |}]
+
+let%expect_test "Proof simple existential formula" =
+  Format.printf "%b"
+    ( {|ExEy 15 = x + y & y <= 10|} |> Parser.parse_formula |> Result.get_ok
+    |> proof |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Proof simple any quantified formula" =
+  Format.printf "%b"
+    ( {|Ax x = 2 | ~(x = 2)|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| true |}]

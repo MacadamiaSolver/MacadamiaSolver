@@ -17,6 +17,8 @@ val create_nfa :
   -> deg:int
   -> t
 
+val map_labels : (int -> int) -> t -> t
+
 val run_nfa : t -> bool
 
 val intersect : t -> t -> t
