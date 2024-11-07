@@ -383,20 +383,6 @@ let dump f =
   let* nfa = eval !s f in
   Format.asprintf "%a" Nfa.format_nfa nfa |> return
 
-let () =
-  let nfa =
-    "Et x = 5t" |> Parser.parse_formula |> Result.get_ok |> eval !s
-    |> Result.get_ok
-  in
-  Format.printf "%a\n" Nfa.format_nfa nfa;
-  let cd =
-    Nfa.find_c_d nfa (Map.of_alist_exn [(0, 1); (5, 1)])
-    |> Base.Sequence.to_list
-  in
-  Format.printf "List length: %d\n" (List.length cd);
-  List.iter (fun (s, c, d) -> Format.printf "List entry: %d %d %d\n%!" s c d) cd;
-  ()
-
 let list () =
   let rec aux = function
     | [] ->
@@ -436,3 +422,17 @@ let () =
 let proof f =
   let* nfa = eval !s f in
   Nfa.run_nfa nfa |> return
+
+let () =
+  let nfa =
+    "Et x = 5t" |> Parser.parse_formula |> Result.get_ok |> eval !s
+    |> Result.get_ok
+  in
+  Format.printf "%a\n" Nfa.format_nfa nfa;
+  let chrobak = Nfa.chrobak nfa in
+  Format.printf "07.11.24: [%a]\n%!"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.fprintf ppf "; ")
+       (fun ppf (a, b) -> Format.fprintf ppf "(%d,%d)" a b) )
+    chrobak;
+  ()

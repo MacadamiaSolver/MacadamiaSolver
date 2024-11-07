@@ -34,6 +34,8 @@ val invert : t -> t
 
 val format_nfa : Format.formatter -> t -> unit
 
-val find_c_d : t -> (int, int) Map.t -> (int * int * int) Sequence.t
+val find_c_d : t -> (int, int) Map.t -> (int * int) list
 
 val get_exponent_sub_nfa : t -> res:int -> temp:int -> t
+
+val chrobak : t -> (int * int) list
