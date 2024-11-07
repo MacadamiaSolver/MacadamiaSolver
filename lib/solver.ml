@@ -455,10 +455,11 @@ let () =
   let vars =
     collect ast |> Set.to_list
     |> List.mapi (fun i x -> (x, i))
-    |> Map.of_alist_exn in
+    |> Map.of_alist_exn
+  in
   List.iter (fun (x, y) -> Format.printf "%s=%i\n" x y) (vars |> Map.to_alist);
   let s = {preds= !s.preds; vars; total= 0; progress= 0} in
-  let nfa, vars = ast |> eval s |> Result.get_ok in
+  let nfa, _vars = ast |> eval s |> Result.get_ok in
   let res = Map.find_exn s.vars "z" in
   let temp = Map.find_exn s.vars "w" in
   let sub_nfa = Nfa.get_exponent_sub_nfa nfa ~res ~temp in
@@ -514,8 +515,10 @@ let%expect_test "Decide order basic" =
   [%expect
     {| ((((True & ((2 ** x) >= y)) & (y >= x)) & (((2 ** x) = y) & (y = 3))) | ((((True & ((2 ** x) >= x)) & (x >= y)) & (((2 ** x) = y) & (y = 3))) | ((((True & (y >= (2 ** x))) & ((2 ** x) >= x)) & (((2 ** x) = y) & (y = 3))) | False))) |}]
 
+let proof_chrobak formula = ()
+
 let () =
-  let nfa, vars =
+  let nfa, _vars =
     "Et x = 5t" |> Parser.parse_formula |> Result.get_ok |> eval !s
     |> Result.get_ok
   in

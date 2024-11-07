@@ -20,7 +20,7 @@ let run {asserts; vars; _} =
   match asserts with
     | h :: tl ->
         List.fold_left Formula.mand h tl
-        |> (fun f -> List.fold_left (Fun.flip Formula.exists) f vars)
+        |> (fun f -> Formula.exists vars f)
         |> Solver.proof |> Result.get_ok
     | [] ->
         true
@@ -77,22 +77,18 @@ let rec formula_of_smtlib = function
   | Ast.Forall (vs, f) ->
       if vs |> List.map snd |> List.exists (( <> ) (Ast.Ty_app ("Int", [])))
       then failwith "Only integer type supported"
-      else
-        vs |> List.map fst
-        |> List.fold_left (Fun.flip Formula.any) (formula_of_smtlib f)
+      else Formula.any (vs |> List.map fst) (formula_of_smtlib f)
   | Ast.Exists (vs, f) ->
       if vs |> List.map snd |> List.exists (( <> ) (Ast.Ty_app ("Int", [])))
       then failwith "Only integer type supported"
-      else
-        vs |> List.map fst
-        |> List.fold_left (Fun.flip Formula.exists) (formula_of_smtlib f)
+      else Formula.exists (vs |> List.map fst) (formula_of_smtlib f)
   | Ast.Let (vs, f) ->
       let f =
         vs
         |> List.map (fun (v, t) -> Formula.Eq (Formula.Var v, term_of_smtlib t))
         |> List.fold_left Formula.mand (formula_of_smtlib f)
       in
-      vs |> List.map fst |> List.fold_left (Fun.flip Formula.exists) f
+      Formula.exists (vs |> List.map fst) f
   | _ ->
       failwith "Unimplemented formula"
 
