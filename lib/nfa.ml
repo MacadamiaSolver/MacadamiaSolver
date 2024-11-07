@@ -389,3 +389,62 @@ let invert nfa =
   let states = states dfa in
   let final = Set.diff states dfa.final in
   ({final; start= dfa.start; transitions= dfa.transitions; deg= dfa.deg} : t)
+
+let find_strong_components nfa =
+  let rec top_sort state visited =
+    let updated_visited = Set.add visited state in
+    let next_states =
+      Array.get nfa.transitions state
+      |> Set.of_list
+      |> Set.map ~f:(fun (_, s) -> s)
+      |> Set.filter ~f:(fun s -> Set.find updated_visited ~f:(( = ) s) == None)
+    in
+    Set.fold next_states ~init:[] ~f:(fun acc s ->
+        List.append acc (top_sort s updated_visited) )
+    |> List.append [state]
+  in
+  let states = Array.make (Array.length nfa.transitions) 0 in
+  Array.iteri (fun q _ -> states.(q) <- q) nfa.transitions;
+  let order =
+    states
+    |> Array.fold_left
+         (fun order s ->
+           let visited = Set.of_list order in
+           if Set.find ~f:(( = ) s) visited == None then
+             List.append order (top_sort s visited)
+           else order )
+         []
+  in
+  let rec mark_comp trans state marks comp_idx =
+    let updated_marks = Map.set marks ~key:state ~data:comp_idx in
+    let next_states =
+      trans.(state)
+      |> List.map (fun (_, s) -> s)
+      |> List.filter (fun s -> Map.find updated_marks s == None)
+    in
+    next_states
+    |> List.fold_left
+         (fun acc s ->
+           if Map.find acc s != None then acc
+           else
+             Map.merge_disjoint_exn acc
+               (mark_comp trans s updated_marks comp_idx) )
+         Map.empty
+  in
+  let reversed_transitions = Array.make (Array.length nfa.transitions) [] in
+  Array.iteri
+    (fun q delta ->
+      List.iter
+        (fun (_, q') ->
+          reversed_transitions.(q') <- q :: reversed_transitions.(q') )
+        delta )
+    nfa.transitions;
+  let components =
+    order
+    |> List.fold_left
+         (fun (marks, idx) s ->
+           (mark_comp reversed_transitions s marks idx, idx + 1) )
+         (Map.empty, 0)
+    |> fst
+  in
+  ()
