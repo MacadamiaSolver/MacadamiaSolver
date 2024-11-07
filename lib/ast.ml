@@ -14,6 +14,8 @@ type term =
   | Pow of int * term
 
 type formula =
+  | True
+  | False
   | Pred of predname * term list
   | Eq of term * term
   | Neq of term * term
@@ -49,6 +51,10 @@ let mul x y = Mul (x, y)
 let pow x y = Pow (x, y)
 
 let pred n p = Pred (n, p)
+
+let mtrue () = True
+
+let mfalse () = False
 
 let eq x y = Eq (x, y)
 
@@ -101,6 +107,10 @@ let rec pp_term ppf = function
       Format.fprintf ppf "(%d ** %a)" a pp_term b
 
 let rec pp_formula ppf = function
+  | True ->
+      Format.fprintf ppf "True"
+  | False ->
+      Format.fprintf ppf "False"
   | Pred (a, b) ->
       Format.fprintf ppf "(P %s %a)" a (Format.pp_print_list pp_term) b
   | Eq (a, b) ->
@@ -164,12 +174,14 @@ let fold ff ft acc f =
   let rec foldt acc = function
     | (Const _ | Var _) as f ->
         ft acc f
-    | Mul (_, t1) as t ->
+    | (Pow (_, t1) | Mul (_, t1)) as t ->
         ft (foldt acc t1) t
     | Add (t1, t2) as t ->
         ft (foldt (foldt acc t1) t2) t
   in
   let rec foldf acc = function
+    | (True | False) as f ->
+        ff acc f
     | ( Eq (t1, t2)
       | Lt (t1, t2)
       | Gt (t1, t2)
@@ -183,8 +195,10 @@ let fold ff ft acc f =
         ff (foldf acc f1) f
     | (Exists (_, f1) | Any (_, f1)) as f ->
         ff (foldf acc f1) f
-    | Pred (_, args) as f ->
+    | Pred (_, _) as f ->
         ff acc f
+    | _ ->
+        failwith "Unimplemented"
   in
   foldf acc f
 
@@ -212,6 +226,8 @@ let map ff ft f =
         Pow (a, mapt t1) |> ft
   in
   let rec mapf = function
+    | (True | False) as f ->
+        f |> ff
     | Eq (t1, t2) ->
         Eq (mapt t1, mapt t2) |> ff
     | Lt (t1, t2) ->
@@ -238,7 +254,9 @@ let map ff ft f =
         Exists (a, mapf f1) |> ff
     | Any (a, f1) ->
         Any (a, mapf f1) |> ff
-    | Pred (_, args) as f ->
+    | Pred (_, _) as f ->
         f |> ff
+    | _ ->
+        failwith "Unimplemented"
   in
   mapf f

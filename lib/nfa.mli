@@ -32,6 +32,8 @@ val truncate : int -> t -> t
 
 val is_graph : t -> bool
 
+val minimize : t -> t
+
 val invert : t -> t
 
 val format_nfa : Format.formatter -> t -> unit

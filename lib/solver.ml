@@ -24,11 +24,8 @@ let collect f =
             acc )
     (fun acc x -> match x with Ast.Var x -> Set.add acc x | _ -> acc)
     Set.empty f
-  |> Set.to_list
-  |> List.mapi (fun i x -> (x, i))
-  |> Map.of_alist_exn
 
-let estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
+let _estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
 
 (*let estimate f =
     let rec estimate_term = function
@@ -104,6 +101,8 @@ let teval s ast =
                     assert false )
         in
         aux a t1
+    | _ ->
+        failwith "Unimplemented"
   in
   (*let internal_counter = ref (Map.length s.vars) in
     let internal () =
@@ -154,23 +153,29 @@ let teval s ast =
           in
           let v, nfa = teval_mul a b in
           (v, nfa)
+      | _ ->
+          failwith "Unimplemented"
   in
   let nfa = teval ast in
   internal_counter := Map.length s.vars;
   nfa
 
-(* let gen_list_n n = *)
-(*   let rec helper acc = function 0 -> [0] | n -> helper (n :: acc) (n - 1) in *)
-(*   helper [] n |> List.rev *)
-
 let eval s ast =
-  let vars = collect ast in
+  let vars =
+    collect ast |> Set.to_list
+    |> List.mapi (fun i x -> (x, i))
+    |> Map.of_alist_exn
+  in
   let s = {preds= s.preds; vars; total= 0; progress= 0} in
   let deg () = Map.length s.vars in
   let var_exn v = Map.find_exn s.vars v in
   let rec eval ast =
     let nfa =
       match ast with
+        | Ast.True ->
+            NfaCollection.n 32 |> return
+        | Ast.False ->
+            NfaCollection.z 32 |> return
         | Ast.Eq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
@@ -216,14 +221,14 @@ let eval s ast =
             let x = List.map var_exn x in
             nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> return
         | Ast.Pred (name, args) ->
-            let* _, pred_params, _, pred_nfa, pred_vars =
+            let* _, _pred_params, _, pred_nfa, _pred_vars =
               List.find_opt
                 (fun (pred_name, _, _, _, _) -> pred_name = name)
                 s.preds
-                |> Option.to_result
+              |> Option.to_result
                    ~none:(Format.sprintf "Unknown predicate: %s" name)
             in
-            let args = List.map (teval s) args in
+            let _args = List.map (teval s) args in
             let nfa = pred_nfa in
             nfa |> return
         | Ast.Pow2 x ->
@@ -253,49 +258,124 @@ let _pow2 n =
     | n ->
         List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
 
-(* let chrobak_of_nfa (nfa : 'a Nfa.nfa) : (int * int) list = failwith "" *)
+let gen_list_n n =
+  let rec helper acc = function 0 -> [0] | n -> helper (n :: acc) (n - 1) in
+  helper [] n |> List.rev
 
-let _nfa_for_exponent s var newvar _chrob =
+let ( -- ) i j =
+  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
+  aux j []
+
+let decide_order f =
+  (* The call accepts only conjuctions *)
+  assert (
+    Ast.for_all
+      (function Ast.Mor _ -> false | Ast.Mimpl _ -> false | _ -> true)
+      (fun _ -> true)
+      f );
+  let vars_and_pows =
+    Ast.fold
+      (fun acc _ -> acc)
+      (fun acc t ->
+        match t with
+          | Ast.Var _ ->
+              Set.add acc t
+          | Ast.Const _ ->
+              acc
+          | Ast.Pow (c, x) ->
+              assert (c = 2);
+              assert (match x with Var _ -> true | _ -> false);
+              Set.add acc t
+          | _ ->
+              acc )
+      Set.empty f
+  in
+  let rec perms list =
+    let a =
+      if List.length list <> 0 then
+        List.mapi
+          (fun i el ->
+            let list = List.filteri (fun j _ -> i <> j) list in
+            List.map (fun list' -> el :: list') (perms list) )
+          list
+        |> List.concat
+      else [[]]
+    in
+    a
+  in
+  let perms = perms (vars_and_pows |> Set.to_list) in
+  let perms =
+    List.filter
+      (fun perm ->
+        Base.List.for_alli
+          ~f:(fun i ast ->
+            match ast with
+              | Ast.Pow (_, x) -> (
+                match x with
+                  | Ast.Var x ->
+                      List.find_index (fun y -> Ast.var x = y) perm
+                      |> Option.value ~default:9999999
+                      > i
+                  | _ ->
+                      assert false )
+              | _ ->
+                  true )
+          perm )
+      perms
+  in
+  List.fold_left
+    (fun acc perm ->
+      let order_ast =
+        List.fold_left
+          (fun acc i ->
+            let t1 = List.nth perm i in
+            let t2 = List.nth perm (i + 1) in
+            Ast.geq t1 t2 |> Ast.mand acc )
+          (Ast.mtrue ())
+          (0 -- (List.length perm - 2))
+      in
+      let ast = f in
+      Ast.mor (Ast.mand order_ast ast) acc )
+    (Ast.mfalse ()) perms
+
+let _nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
-  (* chrob *)
-  (* |> List.concat_map (fun (a, c) -> *)
-  (*        c |> gen_list_n |> List.map (fun d -> (a, d, c)) ) *)
-  (* |> (Fun.flip List.nth) 1 *)
-  (* |> (fun (a, d, c) -> *)
-  let a = 3 in
-  let d = 1 in
-  let c = 5 in
-  let var = (List.nth var 0) in
-  let ast =
-    Ast.Exists
-      ( [var ^ "$"]
-      , Eq (Var var, Add (Add (Const a, Const d), Mul (c, Var (var ^ "$")))) )
-  in
-  let s =
-    { s with
-      vars=
-        Map.add_exn ~key:(var ^ "$")
-          ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
-          s.vars }
-  in
-  let* nfa, vars = eval s ast in
-  let n =
-    List.init a (( + ) (a + 1))
-    |> List.filter (fun x -> x - log2 x >= a)
-    |> List.hd
-  in
-  Format.printf "\n%d\n%!" n;
-  let internal = internal s in
-  nfa |> Nfa.truncate 32
-  |> Nfa.intersect (NfaCollection.torename newvar d c)
-     (* TODO: add minimization here *)
-  |> Nfa.intersect
-       ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
-       |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
-  |> Nfa.truncate (deg ())
-  |> Result.ok
-(* ) *)
-(* |> Base.Result.all *)
+  chrob
+  |> List.concat_map (fun (a, c) ->
+         c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
+  |> List.map (fun (a, d, c) ->
+         let var = List.nth var 0 in
+         let ast =
+           Ast.Exists
+             ( [var ^ "$"]
+             , Eq
+                 ( Var var
+                 , Add (Add (Const a, Const d), Mul (c, Var (var ^ "$"))) ) )
+         in
+         let s =
+           { s with
+             vars=
+               Map.add_exn ~key:(var ^ "$")
+                 ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
+                 s.vars }
+         in
+         let* nfa, _ = eval s ast in
+         let n =
+           List.init a (( + ) (a + 1))
+           |> List.filter (fun x -> x - log2 x >= a)
+           |> List.hd
+         in
+         Format.printf "\n%d\n%!" n;
+         let internal = internal s in
+         nfa |> Nfa.truncate 32
+         |> Nfa.intersect (NfaCollection.torename newvar d c)
+            (* TODO: add minimization here *)
+         |> Nfa.intersect
+              ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
+              |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
+         |> Nfa.truncate (deg ())
+         |> Result.ok )
+  |> Base.Result.all
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
 
@@ -340,10 +420,10 @@ let _nfa_for_exponent s var newvar _chrob =
 
 let dump f =
   let* nfa, _ = eval !s f in
-  Format.asprintf "%a" Nfa.format_nfa nfa |> return
+  Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize) |> return
 
 let () =
-  let nfa, vars =
+  let nfa, _ =
     "Et x = 5t" |> Parser.parse_formula |> Result.get_ok |> eval !s
     |> Result.get_ok
   in
@@ -418,3 +498,10 @@ let%expect_test "Proof simple any quantified formula" =
     ( {|Ax x = 2 | ~(x = 2)|} |> Parser.parse_formula |> Result.get_ok |> proof
     |> Result.get_ok );
   [%expect {| true |}]
+
+let%expect_test "Decide order basic" =
+  Format.printf "%a" Ast.pp_formula
+    ( {|(2 ** x = y) & y = 3|} |> Parser.parse_formula |> Result.get_ok
+    |> decide_order );
+  [%expect
+    {| ((((True & ((2 ** x) >= y)) & (y >= x)) & (((2 ** x) = y) & (y = 3))) | ((((True & ((2 ** x) >= x)) & (x >= y)) & (((2 ** x) = y) & (y = 3))) | ((((True & (y >= (2 ** x))) & ((2 ** x) >= x)) & (((2 ** x) = y) & (y = 3))) | False))) |}]

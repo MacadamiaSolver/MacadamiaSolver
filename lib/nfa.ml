@@ -90,7 +90,7 @@ module Label = struct
     |> Seq.map (function _, '0' -> '_' | x, _ -> x)
     |> String.of_seq |> Format.fprintf ppf "%s"
 
-  let map f (vec, mask) deg =
+  let map _f (vec, mask) _deg =
     (*let vec = Bitv.init (fun n -> ) deg in*)
     (*let mask = Bitv.init (fun n -> ) deg in*)
     return (vec, mask)
@@ -219,7 +219,7 @@ let create_nfa ~(transitions : (state * int * state) list) ~(start : state list)
 let run_nfa nfa = Set.are_disjoint nfa.start nfa.final |> not
 
 let map_labels f nfa =
-  let transitions =
+  let _transitions =
     nfa.transitions
     |> Array.map (fun delta ->
            List.map (fun (label, q') -> (Label.map f label, q')) delta )
@@ -453,6 +453,8 @@ let to_dfa (nfa : t) =
     ({final; start= 0; transitions; deg= nfa.deg} : dfa)
   in
   nfa |> reverse |> to_dfa |> to_nfa |> reverse |> to_dfa |> to_nfa
+
+let minimize = to_dfa
 
 let invert nfa =
   let dfa = nfa |> to_dfa in

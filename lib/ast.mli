@@ -14,6 +14,8 @@ type term =
   | Pow of int * term
 
 type formula =
+  | True
+  | False
   | Pred of predname * term list
   | Eq of term * term
   | Neq of term * term
@@ -49,6 +51,10 @@ val mul : int -> term -> term
 val pow : int -> term -> term
 
 val pred : predname -> term list -> formula
+
+val mtrue : unit -> formula
+
+val mfalse : unit -> formula
 
 val eq : term -> term -> formula
 
