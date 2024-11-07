@@ -88,7 +88,7 @@ module Label = struct
     let mask = Bitv.L.to_string mask |> String.to_seq in
     Seq.zip vec mask
     |> Seq.map (function _, '0' -> '_' | x, _ -> x)
-    |> String.of_seq |> Format.fprintf ppf "%s"
+    |> Seq.take 5 |> String.of_seq |> Format.fprintf ppf "%s"
 
   let map _f (vec, mask) _deg =
     (*let vec = Bitv.init (fun n -> ) deg in*)
@@ -153,6 +153,23 @@ module Graph = struct
           |> List.iter (fun i ->
                  res.(i) <- graphs |> List.concat_map (fun graph -> graph.(i)) );
           res
+
+  let find_shortest_cycle (graph : t) (vertex : state) : int =
+    let rec helper acc visited cur =
+      if Set.is_empty cur then 0
+      else
+        let acc = acc + 1 in
+        let next =
+          cur |> Set.to_list
+          |> List.concat_map (fun x -> graph.(x) |> List.map snd)
+          |> Set.of_list
+        in
+        if Set.mem next vertex then acc
+        else
+          let visited = Set.union visited cur in
+          helper acc visited (Set.diff next visited)
+    in
+    helper 0 Set.empty (Set.singleton vertex)
 end
 
 type t = {transitions: Graph.t; final: state Set.t; start: state Set.t; deg: deg}
@@ -467,13 +484,19 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
   let n = length nfa in
   let reachable_in_range = Graph.reachable_in_range nfa.transitions in
   let reachable_in n init = reachable_in_range n n init |> List.hd in
+  let r1 =
+    0 -- ((n * n) - 1) (* TODO: do not map, collect thing *)
+    |> List.filter (fun i ->
+           reachable_in i nfa.start |> Set.are_disjoint nfa.final |> not )
+    |> List.map (fun x -> (x, 0))
+  in
   let states = reachable_in (n - 1) nfa.start in
   let states =
     states |> Set.to_sequence
     |> Sequence.filter_map ~f:(fun state ->
            Map.find imp state |> Option.map (fun d -> (state, d)) )
   in
-  states
+  ( states
   |> Sequence.concat_map ~f:(fun (state, d) ->
          let first = (n * n) - n - d in
          let last = (n * n) - n - 1 in
@@ -481,14 +504,17 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
          |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
          |> Base.List.zip_exn (first -- last)
          |> List.filter snd |> List.map fst
-         |> List.map (fun c -> (state, c + n - 1, d))
+         |> List.map (fun c -> (c + n - 1, d))
          |> Sequence.of_list )
+  |> Sequence.to_list )
+  @ r1
 
-let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
-  let mask = Bitv.init nfa.deg (fun x -> x = res || x = pow || x = temp) in
-  let zero_lbl = (Bitv.init nfa.deg (Fun.const false), mask) in
-  let res_lbl = (Bitv.init nfa.deg (( = ) res), mask) in
-  let pow_lbl = (Bitv.init nfa.deg (( <> ) res), mask) in
+let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
+  let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
+  let zero_lbl = (Bitv.init 32 (Fun.const false), mask) in
+  let res_lbl = (Bitv.init 32 (( = ) res), mask) in
+  let pow_lbl = (Bitv.init 32 (( = ) temp), mask) in
+  let one_lbl = (Bitv.init 32 (Fun.const true), mask) in
   let reversed_transitions = nfa.transitions |> Graph.reverse in
   let end_transitions =
     reversed_transitions
@@ -534,10 +560,27 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
            |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
            |> List.is_empty |> not )
   in
+  let start_final =
+    nfa.final
+    |> Set.filter ~f:(fun i ->
+           reversed_transitions.(i)
+           |> List.filter (fun (lbl, _) -> Label.equal lbl one_lbl)
+           |> List.is_empty |> not )
+  in
+  let start = Set.union start start_final in
   let transitions =
     Graph.union_list [end_transitions; zero_transitions] |> Graph.reverse
   in
   {transitions; final= nfa.final; start; deg= nfa.deg}
+
+let chrobak (nfa : t) =
+  let important =
+    0 -- (length nfa - 1)
+    |> List.map (fun i -> (i, Graph.find_shortest_cycle nfa.transitions i))
+    |> List.filter (fun (_, b) -> b <> 0)
+    |> Map.of_alist_exn
+  in
+  find_c_d nfa important
 
 let () =
   let res = 0 in
@@ -556,6 +599,6 @@ let () =
         ; (4, 0b100, 5) ]
       ~start:[6] ~final:[5] ~vars:[res; pow; temp] ~deg:32
   in
-  let sub_nfa = get_exponent_sub_nfa nfa ~res ~pow ~temp in
+  let sub_nfa = get_exponent_sub_nfa nfa ~res ~temp in
   Format.printf "%a\n" format_nfa sub_nfa;
   ()
