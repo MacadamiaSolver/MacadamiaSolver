@@ -88,7 +88,7 @@ module Label = struct
     let mask = Bitv.L.to_string mask |> String.to_seq in
     Seq.zip vec mask
     |> Seq.map (function _, '0' -> '_' | x, _ -> x)
-    |> String.of_seq |> Format.fprintf ppf "%s"
+    |> Seq.take 5 |> String.of_seq |> Format.fprintf ppf "%s"
 
   (*let deg (_, mask) = Bitv.length mask*)
 end
@@ -473,11 +473,12 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
          |> List.map (fun c -> (state, c + n - 1, d))
          |> Sequence.of_list )
 
-let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
-  let mask = Bitv.init nfa.deg (fun x -> x = res || x = pow || x = temp) in
-  let zero_lbl = (Bitv.init nfa.deg (Fun.const false), mask) in
-  let res_lbl = (Bitv.init nfa.deg (( = ) res), mask) in
-  let pow_lbl = (Bitv.init nfa.deg (( <> ) res), mask) in
+let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
+  let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
+  let zero_lbl = (Bitv.init 32 (Fun.const false), mask) in
+  let res_lbl = (Bitv.init 32 (( = ) res), mask) in
+  let pow_lbl = (Bitv.init 32 (( = ) temp), mask) in
+  let one_lbl = (Bitv.init 32 (Fun.const true), mask) in
   let reversed_transitions = nfa.transitions |> Graph.reverse in
   let end_transitions =
     reversed_transitions
@@ -523,6 +524,14 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(pow : deg) ~(temp : deg) : t =
            |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
            |> List.is_empty |> not )
   in
+  let start_final =
+    nfa.final
+    |> Set.filter ~f:(fun i ->
+           reversed_transitions.(i)
+           |> List.filter (fun (lbl, _) -> Label.equal lbl one_lbl)
+           |> List.is_empty |> not )
+  in
+  let start = Set.union start start_final in
   let transitions =
     Graph.union_list [end_transitions; zero_transitions] |> Graph.reverse
   in
@@ -545,6 +554,6 @@ let () =
         ; (4, 0b100, 5) ]
       ~start:[6] ~final:[5] ~vars:[res; pow; temp] ~deg:32
   in
-  let sub_nfa = get_exponent_sub_nfa nfa ~res ~pow ~temp in
+  let sub_nfa = get_exponent_sub_nfa nfa ~res ~temp in
   Format.printf "%a\n" format_nfa sub_nfa;
   ()

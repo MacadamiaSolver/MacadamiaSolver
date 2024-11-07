@@ -300,7 +300,11 @@ let _nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
   chrob
   |> List.concat_map (fun (a, c) ->
-         c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
+         if c = 0 then
+           List.init a (( + ) (a + 1))
+           |> List.map (fun x -> (x, log2 x, 0))
+           |> List.filter (fun (x, log, _) -> x - log = a)
+         else c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
   |> List.map (fun (a, d, c) ->
          let ast =
            Ast.Exists
@@ -413,6 +417,21 @@ let pred name params f =
     ; vars= !s.vars
     ; progress= !s.progress };
   return ()
+
+let () =
+  let ast =
+    "z = w & w = x + y & z >= w & w >= x & x >= y & ~(x >= z) & ~(y >= w)"
+    |> Parser.parse_formula |> Result.get_ok
+  in
+  let vars = collect ast in
+  List.iter (fun (x, y) -> Format.printf "%s=%i\n" x y) (vars |> Map.to_alist);
+  let s = {preds= !s.preds; vars; total= 0; progress= 0} in
+  let nfa = ast |> eval s |> Result.get_ok in
+  let res = Map.find_exn s.vars "z" in
+  let temp = Map.find_exn s.vars "w" in
+  let sub_nfa = Nfa.get_exponent_sub_nfa nfa ~res ~temp in
+  Format.printf "07.11.24: %a\n%!" Nfa.format_nfa sub_nfa;
+  ()
 
 let proof f =
   let* nfa = eval !s f in
