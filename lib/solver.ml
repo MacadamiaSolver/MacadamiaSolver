@@ -523,27 +523,42 @@ let () = Power "" |> ignore
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
   let s = {!s with vars} in
+  let get_deg = function
+    | Var x ->
+        Map.find_exn vars x
+    | Power _ ->
+        failwith ""
+  in
   let orders : orderEntry list list = failwith "" (* decide_order formula *) in
-  let any = List.exists (function Ok true -> true | _ -> false) in
+  let first x =
+    x
+    |> Seq.find (function Ok true | Error _ -> true | Ok false -> false)
+    |> function Some x -> x | None -> Ok false
+  in
   let rec proof_order nfa = function
     | [] ->
         nfa |> Nfa.is_graph |> Result.ok
-    | Var x :: tl ->
-        proof_order (Nfa.project [Map.find_exn vars x] nfa) tl
-    | Power x :: (Var _ :: _ as tl) ->
+    | (Var _ as x) :: tl ->
+        proof_order (Nfa.project [get_deg x] nfa) tl
+    | (Power x as x') :: (Var _ :: _ as tl) ->
         let inter = internal s in
-        let chrobak = Nfa.chrobak nfa in
-        let* exp_nfa = nfa_for_exponent s x inter chrobak in
-        exp_nfa
-        |> List.map (Nfa.intersect nfa)
-        |> List.map (fun nfa -> proof_order nfa tl)
-        |> any |> Result.ok
+        Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x') ~temp:(internal s)
+        |> List.to_seq
+        |> Seq.map (fun (nfa, chrobak) ->
+               let* exp_nfa = nfa_for_exponent s x inter chrobak in
+               exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
+        |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
+        |> Seq.map (Result.map (List.map (fun nfa -> proof_order nfa tl)))
+        |> Seq.map (Result.map Base.Result.all)
+        |> Seq.map Base.Result.join
+        |> Seq.map (Result.map (List.exists Fun.id))
+        |> first
     | Power _x :: (Power _y :: _ as _tl) ->
         failwith ""
     | [Power x] ->
         nfa |> Nfa.project [Map.find_exn vars x] |> Nfa.is_graph |> Result.ok
   in
-  orders |> List.map (proof_order nfa) |> any |> Result.ok
+  orders |> List.to_seq |> Seq.map (proof_order nfa) |> first |> Result.ok
 
 let () =
   let nfa, _vars =

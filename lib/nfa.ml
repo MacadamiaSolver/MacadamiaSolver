@@ -582,6 +582,13 @@ let chrobak (nfa : t) =
   in
   find_c_d nfa important
 
+let get_chrobaks_sub_nfas nfa ~res ~temp =
+  let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
+  exp_nfa.start |> Set.to_list
+  |> List.map (fun mid ->
+         let mid = Set.singleton mid in
+         ({nfa with final= mid}, chrobak {exp_nfa with start= mid}) )
+
 let () =
   let res = 0 in
   let pow = 1 in
