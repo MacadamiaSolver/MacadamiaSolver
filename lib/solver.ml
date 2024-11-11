@@ -266,6 +266,8 @@ let ( -- ) i j =
   let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
   aux j []
 
+type orderEntry = Var of string | Power of string
+
 let decide_order f =
   (* The call accepts only conjuctions *)
   assert (
@@ -338,7 +340,7 @@ let decide_order f =
       Ast.mor (Ast.mand order_ast ast) acc )
     (Ast.mfalse ()) perms
 
-let _nfa_for_exponent s var newvar chrob =
+let nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
   chrob
   |> List.concat_map (fun (a, c) ->
@@ -348,7 +350,6 @@ let _nfa_for_exponent s var newvar chrob =
            |> List.filter (fun (x, log, _) -> x - log = a)
          else c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
   |> List.map (fun (a, d, c) ->
-         let var = List.nth var 0 in
          let ast =
            Ast.Exists
              ( [var ^ "$"]
@@ -515,7 +516,34 @@ let%expect_test "Decide order basic" =
   [%expect
     {| ((((True & ((2 ** x) >= y)) & (y >= x)) & (((2 ** x) = y) & (y = 3))) | ((((True & ((2 ** x) >= x)) & (x >= y)) & (((2 ** x) = y) & (y = 3))) | ((((True & (y >= (2 ** x))) & ((2 ** x) >= x)) & (((2 ** x) = y) & (y = 3))) | False))) |}]
 
-let proof_chrobak formula = ()
+let () = Var "" |> ignore
+
+let () = Power "" |> ignore
+
+let proof_semenov formula =
+  let* nfa, vars = eval !s formula in
+  let s = {!s with vars} in
+  let orders : orderEntry list list = failwith "" (* decide_order formula *) in
+  let any = List.exists (function Ok true -> true | _ -> false) in
+  let rec proof_order nfa = function
+    | [] ->
+        nfa |> Nfa.is_graph |> Result.ok
+    | Var x :: tl ->
+        proof_order (Nfa.project [Map.find_exn vars x] nfa) tl
+    | Power x :: (Var _ :: _ as tl) ->
+        let inter = internal s in
+        let chrobak = Nfa.chrobak nfa in
+        let* exp_nfa = nfa_for_exponent s x inter chrobak in
+        exp_nfa
+        |> List.map (Nfa.intersect nfa)
+        |> List.map (fun nfa -> proof_order nfa tl)
+        |> any |> Result.ok
+    | Power _x :: (Power _y :: _ as _tl) ->
+        failwith ""
+    | [Power x] ->
+        nfa |> Nfa.project [Map.find_exn vars x] |> Nfa.is_graph |> Result.ok
+  in
+  orders |> List.map (proof_order nfa) |> any |> Result.ok
 
 let () =
   let nfa, _vars =

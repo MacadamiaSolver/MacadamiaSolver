@@ -6,4 +6,4 @@ val dump : Ast.formula -> (string, string) result
 
 val proof : Ast.formula -> (bool, string) result
 
-val proof_chrobak : Ast.formula -> (bool, string) result
+val proof_semenov : Ast.formula -> (bool, string) result
