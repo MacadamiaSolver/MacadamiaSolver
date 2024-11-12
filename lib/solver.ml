@@ -340,6 +340,26 @@ let decide_order f =
       Ast.mor (Ast.mand order_ast ast) acc )
     (Ast.mfalse ()) perms
 
+let nfa_for_exponent2 s var var2 chrob =
+  chrob
+  |> List.map (fun (a, c) ->
+         let ast =
+           Ast.Exists
+             ( [var ^ "$"]
+             , Eq
+                 ( Var var
+                 , Add (Var var2, Add (Const a, Mul (c, Var (var ^ "$")))) ) )
+         in
+         let s =
+           { s with
+             vars=
+               Map.add_exn ~key:(var ^ "$")
+                 ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
+                 s.vars }
+         in
+         eval s ast |> Result.map fst )
+  |> Base.Result.all
+
 let nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
   chrob
@@ -370,7 +390,6 @@ let nfa_for_exponent s var newvar chrob =
            |> List.filter (fun x -> x - log2 x >= a)
            |> List.hd
          in
-         Format.printf "\n%d\n%!" n;
          let internal = internal s in
          nfa |> Nfa.truncate 32
          |> Nfa.intersect (NfaCollection.torename newvar d c)
@@ -526,8 +545,8 @@ let proof_semenov formula =
   let get_deg = function
     | Var x ->
         Map.find_exn vars x
-    | Power _ ->
-        failwith ""
+    | Power x ->
+        failwith ("2^" ^ x)
   in
   let orders : orderEntry list list = failwith "" (* decide_order formula *) in
   let first x =
@@ -540,23 +559,28 @@ let proof_semenov formula =
         nfa |> Nfa.is_graph |> Result.ok
     | (Var _ as x) :: tl ->
         proof_order (Nfa.project [get_deg x] nfa) tl
-    | (Power x as x') :: (Var _ :: _ as tl) ->
+    | [(Power _ as x)] ->
+        nfa |> Nfa.project [get_deg x] |> Nfa.is_graph |> Result.ok
+    | (Power x as x') :: (next :: _ as tl) ->
         let inter = internal s in
         Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x') ~temp:(internal s)
         |> List.to_seq
         |> Seq.map (fun (nfa, chrobak) ->
-               let* exp_nfa = nfa_for_exponent s x inter chrobak in
+               let* exp_nfa =
+                 match next with
+                   | Power y ->
+                       nfa_for_exponent2 s x y chrobak
+                   | Var _ ->
+                       nfa_for_exponent s x inter chrobak
+               in
                exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
         |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
+        |> Seq.map (Result.map (List.map (Nfa.project [get_deg x'])))
         |> Seq.map (Result.map (List.map (fun nfa -> proof_order nfa tl)))
         |> Seq.map (Result.map Base.Result.all)
         |> Seq.map Base.Result.join
         |> Seq.map (Result.map (List.exists Fun.id))
         |> first
-    | Power _x :: (Power _y :: _ as _tl) ->
-        failwith ""
-    | [Power x] ->
-        nfa |> Nfa.project [Map.find_exn vars x] |> Nfa.is_graph |> Result.ok
   in
   orders |> List.to_seq |> Seq.map (proof_order nfa) |> first |> Result.ok
 
