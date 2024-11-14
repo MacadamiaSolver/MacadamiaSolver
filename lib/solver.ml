@@ -22,7 +22,18 @@ let collect f =
             Set.union acc (Set.of_list xs)
         | _ ->
             acc )
-    (fun acc x -> match x with Ast.Var x -> Set.add acc x | _ -> acc)
+    (fun acc x ->
+      match x with
+        | Ast.Var x ->
+            Set.add acc x
+        | Ast.Pow (_, x) -> (
+          match x with
+            | Ast.Var x ->
+                Set.add acc ("2**" ^ x)
+            | _ ->
+                failwith "unimplemented" )
+        | _ ->
+            acc )
     Set.empty f
 
 let _estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
@@ -101,8 +112,8 @@ let teval s ast =
                     assert false )
         in
         aux a t1
-    | _ ->
-        failwith "Unimplemented"
+    | Ast.Pow (_, _) ->
+        0
   in
   (*let internal_counter = ref (Map.length s.vars) in
     let internal () =
@@ -153,8 +164,12 @@ let teval s ast =
           in
           let v, nfa = teval_mul a b in
           (v, nfa)
-      | _ ->
-          failwith "Unimplemented"
+      | Ast.Pow (_, x) -> (
+        match x with
+          | Ast.Var x ->
+              (var_exn ("2**" ^ x), NfaCollection.n (deg ()))
+          | _ ->
+              failwith "unimplemented" )
   in
   let nfa = teval ast in
   internal_counter := Map.length s.vars;
@@ -262,34 +277,17 @@ let gen_list_n n =
   let rec helper acc = function 0 -> [0] | n -> helper (n :: acc) (n - 1) in
   helper [] n |> List.rev
 
-let ( -- ) i j =
+(*let ( -- ) i j =
   let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
-  aux j []
+  aux j []*)
 
-let decide_order f =
+(* Return the list of orders from decide_order.
+   Convert to the set of numbers.
+   Eval could be used to build the nfa for 2**x considered as variable.
+   Add support for proof_semenov.
+   Strong reachability components, and important vertices that have the least cycle in its component. *)
+let decide_order vars =
   (* The call accepts only conjuctions *)
-  assert (
-    Ast.for_all
-      (function Ast.Mor _ -> false | Ast.Mimpl _ -> false | _ -> true)
-      (fun _ -> true)
-      f );
-  let vars_and_pows =
-    Ast.fold
-      (fun acc _ -> acc)
-      (fun acc t ->
-        match t with
-          | Ast.Var _ ->
-              Set.add acc t
-          | Ast.Const _ ->
-              acc
-          | Ast.Pow (c, x) ->
-              assert (c = 2);
-              assert (match x with Var _ -> true | _ -> false);
-              Set.add acc t
-          | _ ->
-              acc )
-      Set.empty f
-  in
   let rec perms list =
     let a =
       if List.length list <> 0 then
@@ -303,40 +301,19 @@ let decide_order f =
     in
     a
   in
-  let perms = perms (vars_and_pows |> Set.to_list) in
-  let perms =
-    List.filter
-      (fun perm ->
-        Base.List.for_alli
-          ~f:(fun i ast ->
-            match ast with
-              | Ast.Pow (_, x) -> (
-                match x with
-                  | Ast.Var x ->
-                      List.find_index (fun y -> Ast.var x = y) perm
-                      |> Option.value ~default:9999999
-                      > i
-                  | _ ->
-                      assert false )
-              | _ ->
-                  true )
-          perm )
-      perms
-  in
-  List.fold_left
-    (fun acc perm ->
-      let order_ast =
-        List.fold_left
-          (fun acc i ->
-            let t1 = List.nth perm i in
-            let t2 = List.nth perm (i + 1) in
-            Ast.geq t1 t2 |> Ast.mand acc )
-          (Ast.mtrue ())
-          (0 -- (List.length perm - 2))
-      in
-      let ast = f in
-      Ast.mor (Ast.mand order_ast ast) acc )
-    (Ast.mfalse ()) perms
+  let perms = perms (Map.keys vars) in
+  List.filter
+    (fun perm ->
+      Base.List.for_alli
+        ~f:(fun i var ->
+          if String.starts_with ~prefix:"2**" var then
+            let x = String.sub var 3 (String.length var - 3) in
+            List.find_index (fun y -> x = y) perm
+            |> Option.value ~default:9999999
+            > i
+          else true )
+        perm )
+    perms
 
 let _nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
@@ -447,7 +424,7 @@ let pred name params f =
     ; progress= !s.progress };
   return ()
 
-let () =
+(*let () =
   let ast =
     "z = w & w = x + y & z >= w & w >= x & x >= y & ~(x >= z) & ~(y >= w)"
     |> Parser.parse_formula |> Result.get_ok
@@ -464,7 +441,7 @@ let () =
   let temp = Map.find_exn s.vars "w" in
   let sub_nfa = Nfa.get_exponent_sub_nfa nfa ~res ~temp in
   Format.printf "07.11.24: %a\n%!" Nfa.format_nfa sub_nfa;
-  ()
+  ()*)
 
 let proof f =
   let* nfa, _ = f |> Optimizer.optimize |> eval !s in
@@ -509,13 +486,16 @@ let%expect_test "Proof simple any quantified formula" =
   [%expect {| true |}]
 
 let%expect_test "Decide order basic" =
-  Format.printf "%a" Ast.pp_formula
+  let s = ref {preds= []; vars= Map.empty; total= 0; progress= 0} in
+  Format.printf "%a"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.fprintf ppf "; ")
+       (Format.pp_print_list
+          ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
+          Format.pp_print_string ) )
     ( {|(2 ** x = y) & y = 3|} |> Parser.parse_formula |> Result.get_ok
-    |> decide_order );
-  [%expect
-    {| ((((True & ((2 ** x) >= y)) & (y >= x)) & (((2 ** x) = y) & (y = 3))) | ((((True & ((2 ** x) >= x)) & (x >= y)) & (((2 ** x) = y) & (y = 3))) | ((((True & (y >= (2 ** x))) & ((2 ** x) >= x)) & (((2 ** x) = y) & (y = 3))) | False))) |}]
-
-let proof_chrobak formula = ()
+    |> eval !s |> Result.get_ok |> snd |> decide_order );
+  [%expect {| 2**x x y; 2**x y x; y 2**x x |}]
 
 let () =
   let nfa, _vars =

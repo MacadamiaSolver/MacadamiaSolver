@@ -100,6 +100,8 @@ end
 module Graph = struct
   type t = (Label.t * state) list array
 
+  let verticies (graph : t) = Array.length graph
+
   let reachable_in_range (graph : t) first last (init : state Set.t) =
     assert (first <= last);
     let diff = last - first + 1 in
@@ -131,15 +133,14 @@ module Graph = struct
     if Set.is_empty next then start else _reachable graph (Set.union start next)
 
   let reverse (graph : t) : t =
-    graph |> Array.to_list
-    |> List.mapi (fun src list ->
-           list |> List.map (fun (lbl, dst) -> (src, lbl, dst)) )
-    |> List.concat
-    |> List.fold_left
-         (fun lists (dst, lbl, src) ->
-           lists.(src) <- (lbl, dst) :: lists.(src);
-           lists )
-         (Array.init (Array.length graph) (Fun.const []))
+    let rev_graph = Array.make (verticies graph) [] in
+    Array.iteri
+      (fun q delta ->
+        List.iter
+          (fun (label, q') -> rev_graph.(q') <- (label, q) :: rev_graph.(q'))
+          delta )
+      graph;
+    rev_graph
 
   let union_list (graphs : t list) : t =
     match graphs with
@@ -170,6 +171,47 @@ module Graph = struct
           helper acc visited (Set.diff next visited)
     in
     helper 0 Set.empty (Set.singleton vertex)
+
+  (* Kosaraju algorithm *)
+  let find_strongly_connected_components (graph : t) =
+    let s = Stack.create () in
+    let rev_graph = reverse graph in
+    let visited = Array.make (verticies graph) false in
+    let dfs1 v =
+      let rec dfs1 v =
+        if visited.(v) |> not then (
+          visited.(v) <- true;
+          let us = graph.(v) |> List.map snd in
+          List.iter (fun u -> if visited.(u) |> not then dfs1 u else ()) us;
+          Stack.push v s )
+      in
+      dfs1 v
+    in
+    Array.iteri (fun v _ -> dfs1 v) graph;
+    let visited = Array.make (verticies graph) false in
+    let rec dfs2 v =
+      if visited.(v) |> not then (
+        visited.(v) <- true;
+        let us = rev_graph.(v) |> List.map snd in
+        v
+        :: ( List.map (fun u -> if visited.(u) |> not then dfs2 u else []) us
+           |> List.concat ) )
+      else []
+    in
+    Stack.to_seq s
+    |> Seq.filter_map (fun v ->
+           if visited.(v) |> not then Option.some (dfs2 v) else Option.none )
+    |> List.of_seq
+
+  let find_important_verticies graph =
+    let components = find_strongly_connected_components graph in
+    List.filter_map
+      (fun vs ->
+        List.nth_opt
+          ( List.map (fun v -> (v, find_shortest_cycle graph v)) vs
+          |> List.sort (fun x y -> snd x - snd y) )
+          0 )
+      components
 end
 
 type t = {transitions: Graph.t; final: state Set.t; start: state Set.t; deg: deg}
@@ -602,3 +644,57 @@ let () =
   let sub_nfa = get_exponent_sub_nfa nfa ~res ~temp in
   Format.printf "%a\n" format_nfa sub_nfa;
   ()
+
+let%expect_test "Find basic components" =
+  Format.printf "%a"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.fprintf ppf "; ")
+       (Format.pp_print_list
+          ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
+          Format.pp_print_int ) )
+    ( [ [(Label.z (), 1)]
+      ; [(Label.z (), 2)]
+      ; [(Label.z (), 0); (Label.z (), 3)]
+      ; [(Label.z (), 4); (Label.z (), 7)]
+      ; [(Label.z (), 5)]
+      ; [(Label.z (), 6)]
+      ; [(Label.z (), 7); (Label.z (), 4)]
+      ; [] ]
+    |> Array.of_list |> Graph.find_strongly_connected_components );
+  [%expect {| 0 2 1; 3; 4 6 5; 7 |}]
+
+let%expect_test "Reverse graph basic" =
+  let pp_label_int_pair ppf (_, y) = fprintf ppf "%d" y in
+  Format.printf "%a"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.fprintf ppf "; ")
+       (Format.pp_print_list
+          ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
+          pp_label_int_pair ) )
+    ( [ [(Label.z (), 1)]
+      ; [(Label.z (), 2)]
+      ; [(Label.z (), 0); (Label.z (), 3)]
+      ; [(Label.z (), 4); (Label.z (), 7)]
+      ; [(Label.z (), 5)]
+      ; [(Label.z (), 6)]
+      ; [(Label.z (), 7); (Label.z (), 4)]
+      ; [] ]
+    |> Array.of_list |> Graph.reverse |> Array.to_list );
+  [%expect {| 2; 0; 1; 2; 6 3; 4; 5; 6 3 |}]
+
+let%expect_test "Find basic important verticies" =
+  let pp_int_int_pair ppf (x, y) = fprintf ppf "(%d %d)" x y in
+  Format.printf "%a"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
+       pp_int_int_pair )
+    ( [ [(Label.z (), 1)]
+      ; [(Label.z (), 2)]
+      ; [(Label.z (), 0); (Label.z (), 3)]
+      ; [(Label.z (), 4); (Label.z (), 7)]
+      ; [(Label.z (), 5)]
+      ; [(Label.z (), 6)]
+      ; [(Label.z (), 7); (Label.z (), 4)]
+      ; [] ]
+    |> Array.of_list |> Graph.find_important_verticies );
+  [%expect {| (0 3) (3 0) (4 3) (7 0) |}]
