@@ -281,13 +281,10 @@ let gen_list_n n =
   let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
   aux j []*)
 
-(* Return the list of orders from decide_order.
-   Convert to the set of numbers.
-   Eval could be used to build the nfa for 2**x considered as variable.
-   Add support for proof_semenov.
-   Strong reachability components, and important vertices that have the least cycle in its component. *)
+let is_exp var = String.starts_with ~prefix:"2**" var
+let get_exp var = assert(is_exp var); String.sub var 3 (String.length var - 3)
+
 let decide_order vars =
-  (* The call accepts only conjuctions *)
   let rec perms list =
     let a =
       if List.length list <> 0 then
@@ -306,8 +303,8 @@ let decide_order vars =
     (fun perm ->
       Base.List.for_alli
         ~f:(fun i var ->
-          if String.starts_with ~prefix:"2**" var then
-            let x = String.sub var 3 (String.length var - 3) in
+          if is_exp var then
+            let x = get_exp var in
             List.find_index (fun y -> x = y) perm
             |> Option.value ~default:9999999
             > i
@@ -315,7 +312,27 @@ let decide_order vars =
         perm )
     perms
 
-let _nfa_for_exponent s var newvar chrob =
+let nfa_for_exponent2 s var var2 chrob =
+  chrob
+  |> List.map (fun (a, c) ->
+         let ast =
+           Ast.Exists
+             ( [var ^ "$"]
+             , Eq
+                 ( Var var
+                 , Add (Var var2, Add (Const a, Mul (c, Var (var ^ "$")))) ) )
+         in
+         let s =
+           { s with
+             vars=
+               Map.add_exn ~key:(var ^ "$")
+                 ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
+                 s.vars }
+         in
+         eval s ast |> Result.map fst )
+  |> Base.Result.all
+
+let nfa_for_exponent s var newvar chrob =
   let deg () = Map.length s.vars in
   chrob
   |> List.concat_map (fun (a, c) ->
@@ -325,7 +342,6 @@ let _nfa_for_exponent s var newvar chrob =
            |> List.filter (fun (x, log, _) -> x - log = a)
          else c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
   |> List.map (fun (a, d, c) ->
-         let var = List.nth var 0 in
          let ast =
            Ast.Exists
              ( [var ^ "$"]
@@ -346,7 +362,6 @@ let _nfa_for_exponent s var newvar chrob =
            |> List.filter (fun x -> x - log2 x >= a)
            |> List.hd
          in
-         Format.printf "\n%d\n%!" n;
          let internal = internal s in
          nfa |> Nfa.truncate 32
          |> Nfa.intersect (NfaCollection.torename newvar d c)
@@ -496,6 +511,51 @@ let%expect_test "Decide order basic" =
     ( {|(2 ** x = y) & y = 3|} |> Parser.parse_formula |> Result.get_ok
     |> eval !s |> Result.get_ok |> snd |> decide_order );
   [%expect {| 2**x x y; 2**x y x; y 2**x x |}]
+
+let proof_semenov formula =
+  let* nfa, vars = eval !s formula in
+  let s = {!s with vars} in
+  let get_deg x = Map.find_exn vars x in
+  let orders : string list list = failwith "" (* decide_order formula *) in
+  let first x =
+    x
+    |> Seq.find (function Ok true | Error _ -> true | Ok false -> false)
+    |> function Some x -> x | None -> Ok false
+  in
+  let rec proof_order nfa = function
+    | [] ->
+        nfa |> Nfa.is_graph |> Result.ok
+    | x :: tl ->
+      (match is_exp x with
+      | false -> proof_order (Nfa.project [get_deg x] nfa) tl
+      | true ->
+        (match List.length tl with
+        | 0 -> nfa |> Nfa.project [get_deg x] |> Nfa.is_graph |> Result.ok
+        | _ ->
+          let inter = internal s in
+          let next = List.nth tl 0 in
+          let x' = get_exp x in
+          Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x') ~temp:(internal s)
+          |> List.to_seq
+          |> Seq.map (fun (nfa, chrobak) ->
+                 let* exp_nfa =
+                   match is_exp next with
+                     | false ->
+                         nfa_for_exponent s x inter chrobak
+                     | true ->
+                         let y = get_exp next in
+                         nfa_for_exponent2 s x y chrobak
+                 in
+                 exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
+          |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
+          |> Seq.map (Result.map (List.map (Nfa.project [get_deg x'])))
+          |> Seq.map (Result.map (List.map (fun nfa -> proof_order nfa tl)))
+          |> Seq.map (Result.map Base.Result.all)
+          |> Seq.map Base.Result.join
+          |> Seq.map (Result.map (List.exists Fun.id))
+          |> first))
+  in
+  orders |> List.to_seq |> Seq.map (proof_order nfa) |> first |> Result.ok
 
 let () =
   let nfa, _vars =

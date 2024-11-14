@@ -43,3 +43,6 @@ val find_c_d : t -> (int, int) Map.t -> (int * int) list
 val get_exponent_sub_nfa : t -> res:int -> temp:int -> t
 
 val chrobak : t -> (int * int) list
+
+val get_chrobaks_sub_nfas :
+  t -> res:deg -> temp:deg -> (t * (int * int) list) list
