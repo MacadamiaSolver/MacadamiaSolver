@@ -167,7 +167,8 @@ let teval s ast =
       | Ast.Pow (_, x) -> (
         match x with
           | Ast.Var x ->
-              (var_exn ("2**" ^ x), NfaCollection.n (deg ()))
+              let var = var_exn ("2**" ^ x) in
+              (var, NfaCollection.isPowerOf2 var)
           | _ ->
               failwith "unimplemented" )
   in
@@ -282,7 +283,10 @@ let gen_list_n n =
   aux j []*)
 
 let is_exp var = String.starts_with ~prefix:"2**" var
-let get_exp var = assert(is_exp var); String.sub var 3 (String.length var - 3)
+
+let get_exp var =
+  assert (is_exp var);
+  String.sub var 3 (String.length var - 3)
 
 let decide_order vars =
   let rec perms list =
@@ -358,7 +362,7 @@ let nfa_for_exponent s var newvar chrob =
          in
          let* nfa, _ = eval s ast in
          let n =
-           List.init a (( + ) (a + 1))
+           List.init (a + 1) (( + ) (a + 1))
            |> List.filter (fun x -> x - log2 x >= a)
            |> List.hd
          in
@@ -369,8 +373,7 @@ let nfa_for_exponent s var newvar chrob =
          |> Nfa.intersect
               ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
               |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
-         |> Nfa.truncate (deg ())
-         |> Result.ok )
+         |> Nfa.truncate 32 |> Result.ok )
   |> Base.Result.all
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
@@ -416,6 +419,7 @@ let nfa_for_exponent s var newvar chrob =
 
 let dump f =
   let* nfa, _ = eval !s f in
+  let nfa = Nfa.minimize nfa in
   Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize) |> return
 
 let list () =
@@ -514,9 +518,10 @@ let%expect_test "Decide order basic" =
 
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
+  let nfa = Nfa.minimize nfa in
   let s = {!s with vars} in
   let get_deg x = Map.find_exn vars x in
-  let orders : string list list = failwith "" (* decide_order formula *) in
+  let orders : string list list = decide_order vars in
   let first x =
     x
     |> Seq.find (function Ok true | Error _ -> true | Ok false -> false)
@@ -525,37 +530,75 @@ let proof_semenov formula =
   let rec proof_order nfa = function
     | [] ->
         nfa |> Nfa.is_graph |> Result.ok
-    | x :: tl ->
-      (match is_exp x with
-      | false -> proof_order (Nfa.project [get_deg x] nfa) tl
-      | true ->
-        (match List.length tl with
-        | 0 -> nfa |> Nfa.project [get_deg x] |> Nfa.is_graph |> Result.ok
-        | _ ->
-          let inter = internal s in
-          let next = List.nth tl 0 in
-          let x' = get_exp x in
-          Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x') ~temp:(internal s)
-          |> List.to_seq
-          |> Seq.map (fun (nfa, chrobak) ->
-                 let* exp_nfa =
-                   match is_exp next with
-                     | false ->
-                         nfa_for_exponent s x inter chrobak
-                     | true ->
-                         let y = get_exp next in
-                         nfa_for_exponent2 s x y chrobak
-                 in
-                 exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
-          |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
-          |> Seq.map (Result.map (List.map (Nfa.project [get_deg x'])))
-          |> Seq.map (Result.map (List.map (fun nfa -> proof_order nfa tl)))
-          |> Seq.map (Result.map Base.Result.all)
-          |> Seq.map Base.Result.join
-          |> Seq.map (Result.map (List.exists Fun.id))
-          |> first))
+    | x :: tl -> (
+        Format.printf "Order: [%a]\n%!"
+          (Format.pp_print_list
+             ~pp_sep:(fun ppf () -> Format.fprintf ppf ", ")
+             Format.pp_print_string )
+          (x :: tl);
+        match is_exp x with
+          | false ->
+              proof_order (Nfa.project [get_deg x] nfa) tl
+          | true -> (
+            match List.length tl with
+              | 0 ->
+                  nfa |> Nfa.project [get_deg x] |> Nfa.is_graph |> Result.ok
+              | _ ->
+                  let inter = internal s in
+                  let next = List.nth tl 0 in
+                  let x' = get_exp x in
+                  let nfa =
+                    nfa |> Nfa.truncate 32
+                    |> Nfa.intersect
+                         (NfaCollection.torename2 (get_deg x') inter)
+                  in
+                  Format.printf "%a\n" Nfa.format_nfa nfa;
+                  Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x)
+                    ~temp:(internal s)
+                  |> List.to_seq
+                  |> Seq.map (fun (nfa, chrobak) ->
+                         let* exp_nfa =
+                           match is_exp next with
+                             | false ->
+                                 nfa_for_exponent s x inter chrobak
+                             | true ->
+                                 let y = get_exp next in
+                                 nfa_for_exponent2 s x y chrobak
+                         in
+                         exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
+                  |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
+                  |> Seq.map (Result.map (List.map (Nfa.project [get_deg x])))
+                  |> Seq.map
+                       (Result.map (List.map (fun nfa -> proof_order nfa tl)))
+                  |> Seq.map (Result.map Base.Result.all)
+                  |> Seq.map Base.Result.join
+                  |> Seq.map (Result.map (List.exists Fun.id))
+                  |> first ) )
   in
-  orders |> List.to_seq |> Seq.map (proof_order nfa) |> first |> Result.ok
+  orders |> List.to_seq
+  |> Seq.map (fun order ->
+         let len = List.length order in
+         Format.printf "%a\n" Nfa.format_nfa nfa;
+         let* nfa =
+           if len <= 1 then Ok nfa
+           else
+             let* order_nfa, _ =
+               eval s
+                 ( Seq.zip
+                     (order |> List.to_seq |> Seq.take (len - 1))
+                     (order |> List.to_seq |> Seq.drop 1)
+                 |> Seq.map (fun (x, y) -> Ast.Geq (Ast.Var x, Ast.Var y))
+                 |> List.of_seq
+                 |> function
+                 | [] -> failwith "" | h :: tl -> List.fold_left Ast.mand h tl
+                 )
+             in
+             Format.printf "%a\n" Nfa.format_nfa order_nfa;
+             Nfa.intersect nfa order_nfa |> Result.ok
+         in
+         Format.printf "%a\n" Nfa.format_nfa nfa;
+         proof_order nfa order )
+  |> first
 
 let () =
   let nfa, _vars =

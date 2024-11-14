@@ -55,8 +55,8 @@ let geq x y = leq y x
 
 let isPowerOf2 var =
   Nfa.create_nfa
-    ~transitions:[(0, 0b0, 0); (0, 0b1, 1); (1, 0b1, 2); (2, 0b1, 1)]
-    ~start:[0] ~final:[0] ~vars:[var] ~deg:32
+    ~transitions:[(0, 0b0, 0); (0, 0b1, 1); (1, 0b0, 1)]
+    ~start:[0] ~final:[1] ~vars:[var] ~deg:32
 
 let torename var a c =
   let trans1 =
@@ -68,3 +68,8 @@ let torename var a c =
     ~start:[0]
     ~final:[a + c]
     ~vars:[var] ~deg:32
+
+let torename2 var exp =
+  Nfa.create_nfa
+    ~transitions:[(0, 0b10, 0); (0, 0b00, 0); (0, 0b01, 1); (1, 0b00, 1)]
+    ~start:[0] ~final:[1] ~vars:[var; exp] ~deg:32

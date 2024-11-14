@@ -626,6 +626,7 @@ let chrobak (nfa : t) =
 
 let get_chrobaks_sub_nfas nfa ~res ~temp =
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
+  Format.printf "%a\n" format_nfa exp_nfa;
   exp_nfa.start |> Set.to_list
   |> List.map (fun mid ->
          let mid = Set.singleton mid in

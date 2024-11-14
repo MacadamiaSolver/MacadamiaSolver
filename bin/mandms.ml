@@ -6,7 +6,7 @@ open Lib
 
 let exec line = function
   | Ast.Eval f -> (
-      let res = Solver.proof f in
+      let res = Solver.proof_semenov f in
       match res with
         | Ok res ->
             Format.printf "Result: %b\n\n%!" res

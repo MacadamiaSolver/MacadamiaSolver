@@ -19,3 +19,5 @@ val geq : varpos -> varpos -> deg -> Nfa.t
 val isPowerOf2 : varpos -> Nfa.t
 
 val torename : varpos -> int -> int -> Nfa.t
+
+val torename2 : int -> int -> Nfa.t
