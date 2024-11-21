@@ -136,34 +136,39 @@ let teval s ast =
           ( res
           , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res (deg ())
             |> Nfa.intersect la |> Nfa.intersect ra )
-      | Ast.Mul (a, b) ->
-          let rec teval_mul a b =
-            match a with
-              | 0 ->
-                  let var = internal s in
-                  (var, NfaCollection.eq_const var 0 (deg ()))
-              | 1 ->
-                  teval b
-              | _ -> (
-                match a mod 2 with
-                  | 0 ->
-                      let tv, ta = teval_mul (a / 2) b in
-                      let res = internal s in
-                      ( res
-                      , NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res (deg ())
-                        |> Nfa.intersect ta )
-                  | 1 ->
-                      let tv, ta = teval_mul (a - 1) b in
-                      let uv, ua = teval b in
-                      let res = internal s in
-                      ( res
-                      , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res (deg ())
-                        |> Nfa.intersect ta |> Nfa.intersect ua )
-                  | _ ->
-                      assert false )
-          in
-          let v, nfa = teval_mul a b in
-          (v, nfa)
+      | Ast.Mul (lhs, rhs) ->
+          let v, a = teval rhs in
+          let var = internal s in
+          ( var
+          , a |> Nfa.intersect (NfaCollection.mul ~res:var ~lhs ~rhs:v (deg ()))
+          )
+          (* let rec teval_mul a b = *)
+          (*   match a with *)
+          (*     | 0 -> *)
+          (*         let var = internal s in *)
+          (*         (var, NfaCollection.eq_const var 0 (deg ())) *)
+          (*     | 1 -> *)
+          (*         teval b *)
+          (*     | _ -> ( *)
+          (*       match a mod 2 with *)
+          (*         | 0 -> *)
+          (*             let tv, ta = teval_mul (a / 2) b in *)
+          (*             let res = internal s in *)
+          (*             ( res *)
+          (*             , NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res (deg ()) *)
+          (*               |> Nfa.intersect ta ) *)
+          (*         | 1 -> *)
+          (*             let tv, ta = teval_mul (a - 1) b in *)
+          (*             let uv, ua = teval b in *)
+          (*             let res = internal s in *)
+          (*             ( res *)
+          (*             , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res (deg ()) *)
+          (*               |> Nfa.intersect ta |> Nfa.intersect ua ) *)
+          (*         | _ -> *)
+          (*             assert false ) *)
+          (* in *)
+          (* let v, nfa = teval_mul a b in *)
+          (* (v, nfa) *)
       | Ast.Pow (_, x) -> (
         match x with
           | Ast.Var x ->
@@ -258,14 +263,13 @@ let eval s ast =
     nfa
   in
   let* res = eval ast in
-  Format.printf "\n%!";
   (res, vars) |> return
 
 let ( let* ) = Result.bind
 
 let log2 n =
   let rec helper acc = function 0 -> acc | n -> helper (acc + 1) (n / 2) in
-  helper 0 n
+  helper (-1) n
 
 let _pow2 n =
   match n with
@@ -341,9 +345,11 @@ let nfa_for_exponent s var newvar chrob =
   chrob
   |> List.concat_map (fun (a, c) ->
          if c = 0 then
-           List.init a (( + ) (a + 1))
-           |> List.map (fun x -> (x, log2 x, 0))
-           |> List.filter (fun (x, log, _) -> x - log = a)
+           List.init (a + 10) (( + ) a)
+           |> List.map (fun x ->
+                  let log = log2 x in
+                  (x - log, log, 0) )
+           |> List.filter (fun (t, _, _) -> t = a)
          else c |> gen_list_n |> List.map (fun d -> (a, d, c)) )
   |> List.map (fun (a, d, c) ->
          let ast =
@@ -353,6 +359,9 @@ let nfa_for_exponent s var newvar chrob =
                  ( Var var
                  , Add (Add (Const a, Const d), Mul (c, Var (var ^ "$"))) ) )
          in
+         s.vars
+         |> Map.iteri ~f:(fun ~key ~data ->
+                Format.printf "%s -> %d\n\n" key data );
          let s =
            { s with
              vars=
@@ -360,20 +369,40 @@ let nfa_for_exponent s var newvar chrob =
                  ~data:(succ (s.vars |> Map.data |> List.fold_left max ~-1))
                  s.vars }
          in
+         s.vars
+         |> Map.iteri ~f:(fun ~key ~data ->
+                Format.printf "%s -> %d\n" key data );
          let* nfa, _ = eval s ast in
+         Format.printf "nfa_for_exponent (a=%d,d=%d,c=%d): old_var nfa: %a\n" a
+           d c Nfa.format_nfa nfa;
          let n =
-           List.init (a + 1) (( + ) (a + 1))
+           List.init (a + 2) (( + ) a)
            |> List.filter (fun x -> x - log2 x >= a)
            |> List.hd
          in
+         Format.printf "nfa_for_exponent (a=%d,d=%d,c=%d): n: %d\n" a d c n;
          let internal = internal s in
-         nfa |> Nfa.truncate 32
-         |> Nfa.intersect (NfaCollection.torename newvar d c)
-            (* TODO: add minimization here *)
-         |> Nfa.intersect
-              ( NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
-              |> Nfa.intersect (NfaCollection.eq_const internal n (deg ())) )
-         |> Nfa.truncate 32 |> Result.ok )
+         let newvar_nfa = NfaCollection.torename newvar d c in
+         Format.printf "nfa_for_exponent (a=%d,d=%d,c=%d): newvar_var nfa: %a\n"
+           a d c Nfa.format_nfa newvar_nfa;
+         let geq_nfa =
+           NfaCollection.geq (Map.find_exn s.vars var) internal (deg ())
+           |> Nfa.intersect (NfaCollection.eq_const internal n (deg ()))
+         in
+         Format.printf "nfa_for_exponent (a=%d,d=%d,c=%d): geq nfa: %a\n" a d c
+           Nfa.format_nfa geq_nfa;
+         let nfa =
+           nfa |> Nfa.truncate 32
+           |> Nfa.intersect newvar_nfa (* TODO: add minimization here *)
+           |> Nfa.intersect geq_nfa |> Nfa.truncate 32
+           |> Nfa.project [internal; Map.find_exn s.vars (var ^ "$")]
+         in
+         s.vars
+         |> Map.iteri ~f:(fun ~key ~data ->
+                Format.printf "%s -> %d\n" key data );
+         Format.printf "nfa_for_exponent (a=%d,d=%d,c=%d): final nfa: %a\n" a d
+           c Nfa.format_nfa nfa;
+         nfa |> Result.ok )
   |> Base.Result.all
 
 (* TODO: REMOVE THIS BEFORE MERGE *)
@@ -529,45 +558,67 @@ let proof_semenov formula =
   in
   let rec proof_order nfa = function
     | [] ->
-        nfa |> Nfa.is_graph |> Result.ok
+        nfa |> Nfa.run_nfa |> Result.ok
     | x :: tl -> (
         Format.printf "Order: [%a]\n%!"
           (Format.pp_print_list
              ~pp_sep:(fun ppf () -> Format.fprintf ppf ", ")
              Format.pp_print_string )
           (x :: tl);
+        Format.printf "nfa: %a\n" Nfa.format_nfa nfa;
         match is_exp x with
           | false ->
               proof_order (Nfa.project [get_deg x] nfa) tl
           | true -> (
             match List.length tl with
               | 0 ->
-                  nfa |> Nfa.project [get_deg x] |> Nfa.is_graph |> Result.ok
+                  nfa |> Nfa.project [get_deg x] |> Nfa.run_nfa |> Result.ok
               | _ ->
                   let inter = internal s in
                   let next = List.nth tl 0 in
+                  let temp =
+                    if is_exp next then get_deg (get_exp next) else inter
+                  in
                   let x' = get_exp x in
                   let nfa =
                     nfa |> Nfa.truncate 32
                     |> Nfa.intersect
                          (NfaCollection.torename2 (get_deg x') inter)
                   in
-                  Format.printf "%a\n" Nfa.format_nfa nfa;
-                  Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x)
-                    ~temp:(internal s)
-                  |> List.to_seq
+                  vars
+                  |> Map.iteri ~f:(fun ~key ~data ->
+                         Format.printf "%s -> %d\n" key data );
+                  Format.printf "internal -> %d" inter;
+                  Format.printf "nfa with limitations: %a\n" Nfa.format_nfa nfa;
+                  let t =
+                    Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x) ~temp
+                  in
+                  t
+                  |> List.iteri (fun i (nfa, list) ->
+                         Format.printf "chrobak sunbfa %d:\n" i;
+                         list
+                         |> Format.printf "chrobak: [%a]\n"
+                              (Format.pp_print_list
+                                 ~pp_sep:(fun ppf () -> Format.fprintf ppf ", ")
+                                 (fun ppf (a, b) ->
+                                   Format.fprintf ppf "%d+%dk" a b ) );
+                         Format.printf "%a\n\n" Nfa.format_nfa nfa );
+                  t |> List.to_seq
                   |> Seq.map (fun (nfa, chrobak) ->
                          let* exp_nfa =
                            match is_exp next with
                              | false ->
-                                 nfa_for_exponent s x inter chrobak
+                                 let t = nfa_for_exponent s x' inter chrobak in
+                                 Format.printf "%a\n" Nfa.format_nfa nfa;
+                                 t
                              | true ->
                                  let y = get_exp next in
-                                 nfa_for_exponent2 s x y chrobak
+                                 nfa_for_exponent2 s x' y chrobak
                          in
                          exp_nfa |> List.map (Nfa.intersect nfa) |> Result.ok )
                   |> Seq.map (Result.map (List.map (Nfa.intersect nfa)))
-                  |> Seq.map (Result.map (List.map (Nfa.project [get_deg x])))
+                  |> Seq.map
+                       (Result.map (List.map (Nfa.project [get_deg x; inter])))
                   |> Seq.map
                        (Result.map (List.map (fun nfa -> proof_order nfa tl)))
                   |> Seq.map (Result.map Base.Result.all)

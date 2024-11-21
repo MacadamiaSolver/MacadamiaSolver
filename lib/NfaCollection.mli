@@ -21,3 +21,5 @@ val isPowerOf2 : varpos -> Nfa.t
 val torename : varpos -> int -> int -> Nfa.t
 
 val torename2 : int -> int -> Nfa.t
+
+val mul : res:varpos -> lhs:int -> rhs:varpos -> deg -> Nfa.t
