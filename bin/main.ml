@@ -7,7 +7,11 @@ open Lib
 let () =
   let rec input_and_solve () =
     let expr = read_line () in
-    let ast = Parser.parse expr in
-    input_and_solve (print_endline (Ast.string_of_formula ast))
+    let ast = Parser.parse_formula expr in
+    match ast with
+      | Ok f ->
+          input_and_solve (Format.printf "%a" Ast.pp_formula f)
+      | Error err ->
+          input_and_solve (Format.printf "Error: %s" err)
   in
   input_and_solve ()
