@@ -20,7 +20,6 @@
    ocaml 
    dune 
    angstrom 
-   (alcotest :with-test)
    (ocamlformat
     (and
      (= 0.26.2)
