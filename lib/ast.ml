@@ -170,6 +170,17 @@ let binconj_ast_exn = function
   | _ ->
       assert false
 
+let tfold ft acc t =
+  let rec foldt acc = function
+    | (Const _ | Var _) as f ->
+        ft acc f
+    | (Pow (_, t1) | Mul (_, t1)) as t ->
+        ft (foldt acc t1) t
+    | Add (t1, t2) as t ->
+        ft (foldt (foldt acc t1) t2) t
+  in
+  foldt acc t
+
 let fold ff ft acc f =
   let rec foldt acc = function
     | (Const _ | Var _) as f ->

@@ -102,6 +102,8 @@ val quantifier_ast_exn : formula -> varname list -> formula -> formula
 
 val binconj_ast_exn : formula -> formula -> formula -> formula
 
+val tfold : ('acc -> term -> 'acc) -> 'acc -> term -> 'acc
+
 val fold :
   ('acc -> formula -> 'acc) -> ('acc -> term -> 'acc) -> 'acc -> formula -> 'acc
 

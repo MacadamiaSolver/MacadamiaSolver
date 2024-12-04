@@ -476,8 +476,7 @@ let to_dfa nfa =
 let minimize nfa = nfa |> reverse |> to_dfa |> reverse |> to_dfa
 
 let invert nfa =
-  assert nfa.is_dfa;
-  let dfa = nfa |> to_dfa in
+  let dfa = if nfa.is_dfa then nfa else nfa |> to_dfa in
   let states = states dfa in
   let final = Set.diff states dfa.final in
   { final
