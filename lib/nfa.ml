@@ -552,7 +552,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
   @ r1
 
 let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
-  Format.printf "res -> %d\ntemp -> %d\n" res temp;
+  (* Format.printf "res -> %d\ntemp -> %d\n" res temp; *)
   let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
   let zero_lbl = (Bitv.init 32 (Fun.const false), mask) in
   let res_lbl = (Bitv.init 32 (( = ) res), mask) in
@@ -566,13 +566,13 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
              list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
            else [] )
   in
-  Format.printf "end_transitions:\n";
-  end_transitions
-  |> Array.iteri (fun i arr ->
-         arr
-         |> List.iter (fun (l, s) ->
-                Format.printf "%d -> %d: %a\n" i s Label.pp_label l ) );
-  Format.printf "\n";
+  (* Format.printf "end_transitions:\n"; *)
+  (* end_transitions *)
+  (* |> Array.iteri (fun i arr -> *)
+  (*        arr *)
+  (*        |> List.iter (fun (l, s) -> *)
+  (*               Format.printf "%d -> %d: %a\n" i s Label.pp_label l ) ); *)
+  (* Format.printf "\n"; *)
   let pre_final =
     end_transitions |> Array.to_list |> List.concat |> List.map snd
     |> Set.of_list
@@ -603,13 +603,13 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
     in
     helper (Array.map (Fun.const []) all_zero_transitions) Set.empty pre_final
   in
-  Format.printf "zero_transitions:\n";
-  zero_transitions
-  |> Array.iteri (fun i arr ->
-         arr
-         |> List.iter (fun (l, s) ->
-                Format.printf "%d -> %d: %a\n" i s Label.pp_label l ) );
-  Format.printf "\n";
+  (* Format.printf "zero_transitions:\n"; *)
+  (* zero_transitions *)
+  (* |> Array.iteri (fun i arr -> *)
+  (*        arr *)
+  (*        |> List.iter (fun (l, s) -> *)
+  (*               Format.printf "%d -> %d: %a\n" i s Label.pp_label l ) ); *)
+  (* Format.printf "\n"; *)
   (* let start_transitions = *)
   (*   reversed_transitions *)
   (*   |> Array.mapi (fun src list -> *)
@@ -645,35 +645,15 @@ let chrobak (nfa : t) =
     |> Map.of_alist_exn
   in
   find_c_d nfa important
+  (* |> List.map (fun (a, b) -> (a + 1, b)) *)
 
 let get_chrobaks_sub_nfas nfa ~res ~temp =
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
-  Format.printf "exp subnfa: %a\n" format_nfa exp_nfa;
+  (* Format.printf "exp subnfa: %a\n" format_nfa exp_nfa; *)
   exp_nfa.start |> Set.to_list
   |> List.map (fun mid ->
          let mid = Set.singleton mid in
          ({nfa with final= mid}, chrobak {exp_nfa with start= mid}) )
-
-let () =
-  let res = 0 in
-  let pow = 1 in
-  let temp = 2 in
-  let nfa =
-    create_nfa
-      ~transitions:
-        [ (6, 0b010, 0)
-        ; (6, 0b000, 1)
-        ; (0, 0b011, 2)
-        ; (1, 0b011, 2)
-        ; (2, 0b000, 3)
-        ; (2, 0b000, 4)
-        ; (3, 0b100, 5)
-        ; (4, 0b100, 5) ]
-      ~start:[6] ~final:[5] ~vars:[res; pow; temp] ~deg:32
-  in
-  let sub_nfa = get_exponent_sub_nfa nfa ~res ~temp in
-  Format.printf "%a\n" format_nfa sub_nfa;
-  ()
 
 let%expect_test "Find basic components" =
   Format.printf "%a"
