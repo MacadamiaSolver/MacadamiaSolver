@@ -1,6 +1,6 @@
 (library
  (name lib)
- (modules Ast Parser Nfa NfaCollection Utils)
+ (modules Ast Parser Nfa NfaCollection Solver Utils)
  (libraries base angstrom bitv)
  (inline_tests)
  (preprocess
