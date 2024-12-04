@@ -1,63 +1,65 @@
-open Bits
-open Utils
 module Map = Nfa.Map
 
-let ( let* ) = Option.bind
+type varpos = int
 
-let l (a, b, c) =
-  let* b =
-    b |> Map.of_alist_multi
-    |> Map.map ~f:(function
-         | [] ->
-             None
-         | h :: tl ->
-             if List.for_all (( = ) h) tl then Some h else None )
-    |> option_map_to_map_option
+type deg = int
+
+let add ~lhs ~rhs ~sum _ =
+  Nfa.create_nfa
+    ~transitions:
+      [ (0, 0b000, 0)
+      ; (0, 0b101, 0)
+      ; (0, 0b110, 0)
+      ; (0, 0b011, 1)
+      ; (1, 0b111, 1)
+      ; (1, 0b010, 1)
+      ; (1, 0b001, 1)
+      ; (1, 0b100, 0) ]
+    ~start:[0] ~final:[0] ~vars:[sum; rhs; lhs] ~deg:32
+
+let eq lhs rhs _ =
+  Nfa.create_nfa
+    ~transitions:[(0, 0b00, 0); (0, 0b11, 0)]
+    ~start:[0] ~final:[0] ~vars:[lhs; rhs] ~deg:32
+
+let eq_const var (n : int) _ =
+  let vec = Bitv.of_int_us n |> Bitv.to_list |> Bitv.of_list in
+  let max = Bitv.length vec in
+  let transitions =
+    Bitv.foldi_right
+      (fun i bit acc -> (i, (if bit then 1 else 0), i + 1) :: acc)
+      vec
+      [(max, 0, max)]
   in
-  Some (a, b, c)
+  Nfa.create_nfa ~start:[0] ~final:[max] ~transitions ~vars:[var] ~deg:32
 
-module Add = struct
-  type state = Eq | Neq
+let n _ =
+  Nfa.create_nfa ~transitions:[(0, 0, 0)] ~start:[0] ~final:[0] ~vars:[] ~deg:32
 
-  let add ~lhs ~rhs ~sum =
-    Nfa.create_dfa
-      ~transitions:
-        ( [ l (Eq, [(lhs, O); (rhs, O); (sum, O)], Eq)
-          ; l (Eq, [(lhs, I); (rhs, O); (sum, I)], Eq)
-          ; l (Eq, [(lhs, O); (rhs, I); (sum, I)], Eq)
-          ; l (Eq, [(lhs, I); (rhs, I); (sum, O)], Neq)
-          ; l (Neq, [(lhs, I); (rhs, I); (sum, I)], Neq)
-          ; l (Neq, [(lhs, O); (rhs, I); (sum, O)], Neq)
-          ; l (Neq, [(lhs, I); (rhs, O); (sum, O)], Neq)
-          ; l (Neq, [(lhs, O); (rhs, O); (sum, I)], Eq) ]
-        |> List.filter_map Fun.id )
-      ~start:Eq ~final:[Eq]
-    |> Result.get_ok
-end
+let z _ = Nfa.create_nfa ~transitions:[] ~start:[0] ~final:[] ~vars:[] ~deg:32
 
-module Eq = struct
-  let eq lhs rhs =
-    Nfa.create_dfa
-      ~transitions:
-        ( [l ((), [(lhs, O); (rhs, O)], ()); l ((), [(lhs, I); (rhs, I)], ())]
-        |> List.filter_map Fun.id )
-      ~start:() ~final:[()]
-    |> Result.get_ok
+let leq lhs rhs _ =
+  Nfa.create_nfa
+    ~transitions:
+      [ (0, 0b00, 0)
+      ; (0, 0b11, 0)
+      ; (0, 0b10, 0)
+      ; (0, 0b01, 1)
+      ; (1, 0b11, 1)
+      ; (1, 0b00, 1)
+      ; (1, 0b01, 1)
+      ; (1, 0b10, 0) ]
+    ~start:[0] ~final:[0] ~vars:[rhs; lhs] ~deg:32
 
-  let eq_const var (n : int) =
-    let l = Nfa.Map.of_alist_exn in
-    let bit_string = Bits.to_bit_string n in
-    let max = List.length bit_string in
-    Nfa.create_dfa ~start:0 ~final:[max]
-      ~transitions:
-        ( (max, l [(var, O)], max)
-        :: (bit_string |> List.mapi (fun i bit -> (i, l [(var, bit)], i + 1)))
-        )
-    |> Result.get_ok
-end
+let geq x y = leq y x
 
-module Neutral = struct
-  let n () =
-    Nfa.create_dfa ~transitions:[((), Map.empty, ())] ~start:() ~final:[()]
-    |> Result.get_ok
-end
+let torename var a c =
+  let trans1 =
+    List.init (a + c - 1) Fun.id |> List.map (fun x -> (x, 0b0, x + 1))
+  in
+  Nfa.create_nfa
+    ~transitions:
+      ([(a + c - 1, 0b0, a); (a, 0b1, a + c); (a + c, 0b0, a + c)] @ trans1)
+    ~start:[0]
+    ~final:[a + c]
+    ~vars:[var] ~deg:32

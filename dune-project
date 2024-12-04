@@ -20,6 +20,7 @@
    ocaml 
    dune 
    angstrom 
+   bitv 
    (ocamlformat
     (and
      (= 0.26.2)
