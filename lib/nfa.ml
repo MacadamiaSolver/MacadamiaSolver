@@ -540,6 +540,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
   in
   ( states
   |> Sequence.concat_map ~f:(fun (state, d) ->
+         (* Format.printf "d=%d\n" d; *)
          let first = (n * n) - n - d in
          let last = (n * n) - n - 1 in
          reachable_in_range first last (Set.singleton state)
@@ -639,8 +640,12 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
 
 let chrobak (nfa : t) =
   let important =
-    Graph.find_important_verticies nfa.transitions |> Map.of_alist_exn
+    Graph.find_important_verticies nfa.transitions
+    |> List.filter (fun (_, b) -> b <> 0)
+    |> Map.of_alist_exn
   in
+  (* important *)
+  (* |> Map.iteri ~f:(fun ~key ~data -> Format.printf "state=%d,d=%d\n" key data); *)
   find_c_d nfa important
 (* |> List.map (fun (a, b) -> (a + 1, b)) *)
 
