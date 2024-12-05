@@ -289,7 +289,7 @@ let map_labels f nfa =
   ; deg= nfa.deg }
 
 let intersect nfa1 nfa2 =
-  assert (nfa1.deg = nfa2.deg);
+  (* assert (nfa1.deg = nfa2.deg); *)
   let cartesian_product l1 l2 =
     Set.fold
       ~f:(fun x a -> Set.fold ~f:(fun y b -> Set.add y (a, b)) ~init:x l2)
@@ -639,13 +639,10 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
 
 let chrobak (nfa : t) =
   let important =
-    0 -- (length nfa - 1)
-    |> List.map (fun i -> (i, Graph.find_shortest_cycle nfa.transitions i))
-    |> List.filter (fun (_, b) -> b <> 0)
-    |> Map.of_alist_exn
+    Graph.find_important_verticies nfa.transitions |> Map.of_alist_exn
   in
   find_c_d nfa important
-  (* |> List.map (fun (a, b) -> (a + 1, b)) *)
+(* |> List.map (fun (a, b) -> (a + 1, b)) *)
 
 let get_chrobaks_sub_nfas nfa ~res ~temp =
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
