@@ -517,7 +517,8 @@ let to_dfa (nfa : t) =
     let transitions = Array.of_list transitions in
     ({final; start= 0; transitions; deg= nfa.deg} : dfa)
   in
-  nfa |> reverse |> to_dfa |> to_nfa |> reverse |> to_dfa |> to_nfa
+  nfa |> to_dfa |> to_nfa |> reverse |> to_dfa |> to_nfa |> reverse |> to_dfa
+  |> to_nfa
 
 let minimize = to_dfa
 
