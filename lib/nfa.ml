@@ -473,7 +473,7 @@ let to_dfa nfa =
   let transitions = Array.of_list transitions in
   {final; start= Set.singleton 0; transitions; deg= nfa.deg; is_dfa= true}
 
-let minimize nfa = nfa |> reverse |> to_dfa |> reverse |> to_dfa
+let minimize nfa = nfa |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
 
 let invert nfa =
   let dfa = if nfa.is_dfa then nfa else nfa |> to_dfa in
