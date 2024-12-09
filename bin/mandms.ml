@@ -34,9 +34,9 @@ let exec line = function
       | Error msg ->
           Format.printf "Error: %s\n\n%!" msg )
   | Ast.Parse f ->
-      Format.printf "Formula AST: %a\n%!" Ast.pp_formula f
-  (* TODO: Support for optimizer. *)
-  (* Format.printf "Optimized AST: %a\n\n%!" Ast.pp_formula f *)
+      Format.printf "Formula AST: %a\n%!" Ast.pp_formula f;
+      Format.printf "Optimized AST: %a\n\n%!" Ast.pp_formula
+        (f |> Optimizer.optimize)
   | Ast.List ->
       Solver.list ()
   | Ast.Help ->
