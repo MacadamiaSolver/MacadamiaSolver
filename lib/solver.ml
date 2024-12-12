@@ -46,55 +46,27 @@ let internal s =
 
 let teval s ast =
   let var_exn v = Map.find_exn s.vars v in
-  let rec internals = function
-    | Ast.Const _ ->
-        1
-    | Ast.Var _ ->
-        0
-    | Ast.Add (t1, t2) ->
-        1 + internals t1 + internals t2
-    | Ast.Mul (a, t1) ->
-        let rec aux a b =
-          match a with
-            | 0 ->
-                1
-            | 1 ->
-                internals b
-            | _ -> (
-              match a mod 2 with
-                | 0 ->
-                    aux (a / 2) b
-                | 1 ->
-                    aux (a - 1) b
-                | _ ->
-                    assert false )
-        in
-        aux a t1
-    | Ast.Pow (_, _) ->
-        0
-  in
-  let deg () = Map.length s.vars + internals ast in
   let rec teval ast =
     match ast with
       | Ast.Var a ->
           let var = var_exn a in
-          (var, NfaCollection.n (deg ()))
+          (var, NfaCollection.n ())
       | Ast.Const a ->
           let var = internal s in
-          (var, NfaCollection.eq_const var a (deg ()))
+          (var, NfaCollection.eq_const var a)
       | Ast.Add (l, r) ->
           let lv, la = teval l in
           let rv, ra = teval r in
           let res = internal s in
           ( res
-          , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res (deg ())
+          , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res
             |> Nfa.intersect la |> Nfa.intersect ra )
       | Ast.Mul (a, b) ->
           let rec teval_mul a b =
             match a with
               | 0 ->
                   let var = internal s in
-                  (var, NfaCollection.eq_const var 0 (deg ()))
+                  (var, NfaCollection.eq_const var 0)
               | 1 ->
                   teval b
               | _ -> (
@@ -103,14 +75,14 @@ let teval s ast =
                       let tv, ta = teval_mul (a / 2) b in
                       let res = internal s in
                       ( res
-                      , NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res (deg ())
+                      , NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res
                         |> Nfa.intersect ta )
                   | 1 ->
                       let tv, ta = teval_mul (a - 1) b in
                       let uv, ua = teval b in
                       let res = internal s in
                       ( res
-                      , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res (deg ())
+                      , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res
                         |> Nfa.intersect ta |> Nfa.intersect ua )
                   | _ ->
                       assert false )
@@ -120,7 +92,7 @@ let teval s ast =
       | Ast.Pow (_, x) -> (
         match x with
           | Ast.Var x ->
-              (var_exn ("2**" ^ x), NfaCollection.n (deg ()))
+              (var_exn ("2**" ^ x), NfaCollection.n ())
           | _ ->
               failwith "unimplemented" )
   in
@@ -141,28 +113,25 @@ let eval s ast =
     let nfa =
       match ast with
         | Ast.True ->
-            NfaCollection.n 32 |> return
+            NfaCollection.n () |> return
         | Ast.False ->
-            NfaCollection.z 32 |> return
+            NfaCollection.z () |> return
         | Ast.Eq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
-            NfaCollection.eq lv rv (deg ())
-            |> Nfa.intersect la |> Nfa.intersect ra
+            NfaCollection.eq lv rv |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
             |> return
         | Ast.Leq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
-            NfaCollection.leq lv rv (deg ())
-            |> Nfa.intersect la |> Nfa.intersect ra
+            NfaCollection.leq lv rv |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
             |> return
         | Ast.Geq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
-            NfaCollection.geq lv rv (deg ())
-            |> Nfa.intersect la |> Nfa.intersect ra
+            NfaCollection.geq lv rv |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
             |> return
         | Ast.Mnot f ->
@@ -208,7 +177,6 @@ let eval s ast =
     nfa
   in
   let* res = eval ast in
-  Format.printf "\n%!";
   (res, vars) |> return
 
 let ( let* ) = Result.bind

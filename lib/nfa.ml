@@ -53,10 +53,30 @@ module Label = struct
   type t = Bitv.t * Bitv.t
 
   let equal (vec1, mask1) (vec2, mask2) =
+    let len = max (Bitv.length mask1) (Bitv.length mask2) in
+    let extend v =
+      let vl = Bitv.length v in
+      assert (vl <= len);
+      if vl = len then v else Bitv.append v (Bitv.create (len - vl) false)
+    in
+    let vec1 = extend vec1 in
+    let vec2 = extend vec2 in
+    let mask1 = extend mask1 in
+    let mask2 = extend mask2 in
     let mask = Bitv.bw_and mask1 mask2 in
     Bitv.equal (Bitv.bw_and vec1 mask) (Bitv.bw_and vec2 mask)
 
   let combine (vec1, mask1) (vec2, mask2) =
+    let len = max (Bitv.length mask1) (Bitv.length mask2) in
+    let extend v =
+      let vl = Bitv.length v in
+      assert (vl <= len);
+      if vl = len then v else Bitv.append v (Bitv.create (len - vl) false)
+    in
+    let vec1 = extend vec1 in
+    let vec2 = extend vec2 in
+    let mask1 = extend mask1 in
+    let mask2 = extend mask2 in
     (Bitv.bw_or vec1 vec2, Bitv.bw_or mask1 mask2)
 
   let project proj (vec, mask) =
@@ -67,8 +87,8 @@ module Label = struct
     (Bitv.bw_and vec proj, Bitv.bw_and mask proj)
 
   let truncate len (vec, mask) =
-    ( Bitv.init 32 (fun i -> i < len && Bitv.get vec i)
-    , Bitv.init 32 (fun i -> i < len && Bitv.get mask i) )
+    ( Bitv.init len (fun i -> Bitv.get vec i)
+    , Bitv.init len (fun i -> Bitv.get mask i) )
 
   let is_zero (vec, mask) = Bitv.bw_and vec mask |> Bitv.all_zeros
 
@@ -79,14 +99,14 @@ module Label = struct
     |> List.map (fun x -> stretch x mask_list (Bitv.length mask) |> Option.get)
     |> List.map (fun x -> (x, mask))
 
-  let z _ = (Bitv.init 32 (fun _ -> false), Bitv.init 32 (fun _ -> false))
+  let z deg = (Bitv.init deg (fun _ -> false), Bitv.init deg (fun _ -> false))
 
   let pp_label ppf (vec, mask) =
     let vec = Bitv.L.to_string vec |> String.to_seq in
     let mask = Bitv.L.to_string mask |> String.to_seq in
     Seq.zip vec mask
     |> Seq.map (function _, '0' -> '_' | x, _ -> x)
-    |> Seq.take 5 |> String.of_seq |> Format.fprintf ppf "%s"
+    |> String.of_seq |> Format.fprintf ppf "(%s)"
 
   let map _f (vec, mask) _deg =
     (*let vec = Bitv.init (fun n -> ) deg in*)
@@ -278,7 +298,6 @@ let map_labels f nfa =
   ; is_dfa= nfa.is_dfa }
 
 let intersect nfa1 nfa2 =
-  assert (nfa1.deg = nfa2.deg);
   let cartesian_product l1 l2 =
     Set.fold
       ~f:(fun x a -> Set.fold ~f:(fun y b -> Set.add y (a, b)) ~init:x l2)
@@ -336,7 +355,6 @@ let intersect nfa1 nfa2 =
   {final; start; transitions; deg; is_dfa}
 
 let unite nfa1 nfa2 =
-  assert (nfa1.deg = nfa2.deg);
   let s1 q = q in
   let s2 q = length nfa1 + q in
   let start = Set.union (Set.map ~f:s1 nfa1.start) (Set.map ~f:s2 nfa2.start) in
@@ -350,7 +368,8 @@ let unite nfa1 nfa2 =
       |> Array.map (fun delta ->
              List.map (fun (label, q') -> (label, s2 q')) delta ) )
   in
-  {start; final; transitions; deg= nfa1.deg; is_dfa= false}
+  let deg = max nfa1.deg nfa2.deg in
+  {start; final; transitions; deg; is_dfa= false}
 
 let is_graph nfa =
   nfa.transitions

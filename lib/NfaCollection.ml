@@ -2,9 +2,7 @@ module Map = Nfa.Map
 
 type varpos = int
 
-type deg = int
-
-let add ~lhs ~rhs ~sum _ =
+let add ~lhs ~rhs ~sum =
   Nfa.create_nfa
     ~transitions:
       [ (0, 0b000, 0)
@@ -15,14 +13,16 @@ let add ~lhs ~rhs ~sum _ =
       ; (1, 0b010, 1)
       ; (1, 0b001, 1)
       ; (1, 0b100, 0) ]
-    ~start:[0] ~final:[0] ~vars:[sum; rhs; lhs] ~deg:32
+    ~start:[0] ~final:[0] ~vars:[sum; rhs; lhs]
+    ~deg:((max lhs rhs |> max sum) + 1)
 
-let eq lhs rhs _ =
+let eq lhs rhs =
   Nfa.create_nfa
     ~transitions:[(0, 0b00, 0); (0, 0b11, 0)]
-    ~start:[0] ~final:[0] ~vars:[lhs; rhs] ~deg:32
+    ~start:[0] ~final:[0] ~vars:[lhs; rhs]
+    ~deg:(max lhs rhs + 1)
 
-let eq_const var (n : int) _ =
+let eq_const var (n : int) =
   let vec = Bitv.of_int_us n |> Bitv.to_list |> Bitv.of_list in
   let max = Bitv.length vec in
   let transitions =
@@ -31,14 +31,14 @@ let eq_const var (n : int) _ =
       vec
       [(max, 0, max)]
   in
-  Nfa.create_nfa ~start:[0] ~final:[max] ~transitions ~vars:[var] ~deg:32
+  Nfa.create_nfa ~start:[0] ~final:[max] ~transitions ~vars:[var] ~deg:(var + 1)
 
-let n _ =
-  Nfa.create_nfa ~transitions:[(0, 0, 0)] ~start:[0] ~final:[0] ~vars:[] ~deg:32
+let n () =
+  Nfa.create_nfa ~transitions:[(0, 0, 0)] ~start:[0] ~final:[0] ~vars:[] ~deg:1
 
-let z _ = Nfa.create_nfa ~transitions:[] ~start:[0] ~final:[] ~vars:[] ~deg:32
+let z () = Nfa.create_nfa ~transitions:[] ~start:[0] ~final:[] ~vars:[] ~deg:1
 
-let leq lhs rhs _ =
+let leq lhs rhs =
   Nfa.create_nfa
     ~transitions:
       [ (0, 0b00, 0)
@@ -49,7 +49,8 @@ let leq lhs rhs _ =
       ; (1, 0b00, 1)
       ; (1, 0b01, 1)
       ; (1, 0b10, 0) ]
-    ~start:[0] ~final:[0] ~vars:[rhs; lhs] ~deg:32
+    ~start:[0] ~final:[0] ~vars:[rhs; lhs]
+    ~deg:(max lhs rhs + 1)
 
 let geq x y = leq y x
 
@@ -62,4 +63,4 @@ let torename var a c =
       ([(a + c - 1, 0b0, a); (a, 0b1, a + c); (a + c, 0b0, a + c)] @ trans1)
     ~start:[0]
     ~final:[a + c]
-    ~vars:[var] ~deg:32
+    ~vars:[var] ~deg:(var + 1)
