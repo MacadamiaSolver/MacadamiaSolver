@@ -591,6 +591,7 @@ let proof_semenov formula =
                   nfa |> Nfa.project [get_deg x] |> Nfa.run_nfa |> Result.ok
               | _ ->
                   let deg () = Map.length s.vars in
+                  let old_counter = !internal_counter in
                   let inter = internal s in
                   let next = List.nth tl 0 in
                   let temp =
@@ -635,33 +636,37 @@ let proof_semenov formula =
                     (*                (fun ppf (a, b) -> *)
                     (*                  Format.fprintf ppf "%d+%dk" a b ) ); *)
                     (*        Format.printf "%a\n\n" Nfa.format_nfa nfa ); *)
-                    t |> List.to_seq
-                    |> Seq.map (fun (nfa, chrobak) ->
-                           let a =
-                             ( match is_exp next with
-                               | _ ->
-                                   let t =
-                                     nfa_for_exponent s (Map.find_exn s.vars x')
-                                       inter chrobak
-                                   in
-                                   (* Format.printf "%a\n" Nfa.format_nfa nfa; *)
-                                   t
-                                   (* | true -> *)
-                                   (*     let y = get_exp next in *)
-                                   (*     nfa_for_exponent2 s (Map.find_exn s.vars x') *)
-                                   (*       (Map.find_exn s.vars y) chrobak *)
-                               )
-                             |> List.map (Nfa.intersect nfa)
-                           in
-                           (* a *)
-                           (* |> List.iter *)
-                           (*      (Format.printf "intersected: %a\n" Nfa.format_nfa); *)
-                           a )
-                    |> Seq.map (List.map (Nfa.project [get_deg x; inter]))
-                    |> Seq.map (List.map (fun nfa -> proof_order nfa tl))
-                    |> Seq.map Base.Result.all
-                    |> Seq.map (Result.map (List.exists Fun.id))
-                    |> first ) )
+                    let result =
+                      t |> List.to_seq
+                      |> Seq.map (fun (nfa, chrobak) ->
+                             let a =
+                               ( match is_exp next with
+                                 | _ ->
+                                     let t =
+                                       nfa_for_exponent s
+                                         (Map.find_exn s.vars x') inter chrobak
+                                     in
+                                     (* Format.printf "%a\n" Nfa.format_nfa nfa; *)
+                                     t
+                                     (* | true -> *)
+                                     (*     let y = get_exp next in *)
+                                     (*     nfa_for_exponent2 s (Map.find_exn s.vars x') *)
+                                     (*       (Map.find_exn s.vars y) chrobak *)
+                                 )
+                               |> List.map (Nfa.intersect nfa)
+                             in
+                             (* a *)
+                             (* |> List.iter *)
+                             (*      (Format.printf "intersected: %a\n" Nfa.format_nfa); *)
+                             a )
+                      |> Seq.map (List.map (Nfa.project [get_deg x; inter]))
+                      |> Seq.map (List.map (fun nfa -> proof_order nfa tl))
+                      |> Seq.map Base.Result.all
+                      |> Seq.map (Result.map (List.exists Fun.id))
+                      |> first
+                    in
+                    internal_counter := old_counter;
+                    result ) )
   in
   orders |> List.to_seq
   |> Seq.map (fun order ->
