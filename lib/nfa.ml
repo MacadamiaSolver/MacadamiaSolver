@@ -657,12 +657,20 @@ let chrobak (nfa : t) =
 (* |> List.map (fun (a, b) -> (a + 1, b)) *)
 
 let get_chrobaks_sub_nfas nfa ~res ~temp =
+  let mask = Bitv.init 32 (( = ) temp) in
+  let temp_lbl = (mask, mask) in
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
   (* Format.printf "exp subnfa: %a\n" format_nfa exp_nfa; *)
   exp_nfa.start |> Set.to_list
   |> List.map (fun mid ->
-         let mid = Set.singleton mid in
-         ({nfa with final= mid}, chrobak {exp_nfa with start= mid}) )
+         ( { nfa with
+             final= Set.singleton mid
+           ; transitions=
+               nfa.transitions
+               |> Array.map
+                    (List.filter (fun (lbl, fin) ->
+                         fin <> mid || Label.equal lbl temp_lbl ) ) }
+         , chrobak {exp_nfa with start= Set.singleton mid} ) )
 
 let%expect_test "Find basic components" =
   Format.printf "%a"
