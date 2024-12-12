@@ -410,9 +410,15 @@ let format_nfa ppf nfa =
   Array.iteri
     (fun q delta ->
       delta
-      |> List.iter (fun (label, q') ->
+      |> List.map (fun (label, q') -> (q', label))
+      |> Map.of_alist_multi
+      |> Map.iteri ~f:(fun ~key:q' ~data:labels ->
              fprintf ppf "\"%a\" -> \"%a\" [label=\"%a\"]\n" format_state q
-               format_state q' Label.pp_label label ) )
+               format_state q'
+               (Format.pp_print_list
+                  ~pp_sep:(fun ppf () -> Format.fprintf ppf "\n")
+                  Label.pp_label )
+               labels ) )
     nfa.transitions;
   fprintf ppf "}"
 
