@@ -30,11 +30,11 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
-  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
   | Eval of formula
+  | EvalSemenov of formula
   | Dump of formula
   | Parse of formula
   | List
@@ -85,6 +85,8 @@ val any : varname list -> formula -> formula
 val def : string -> varname list -> formula -> stmt
 
 val eval : formula -> stmt
+
+val eval_semenov : formula -> stmt
 
 val dump : formula -> stmt
 

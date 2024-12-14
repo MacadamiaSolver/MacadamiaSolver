@@ -8,6 +8,8 @@ let is_whitespace = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
 
 let whitespace = take_while is_whitespace
 
+let whitespace1 = take_while1 is_whitespace
+
 let is_digit = function '0' .. '9' -> true | _ -> false
 
 let const = take_while1 is_digit >>| int_of_string >>| Ast.const
@@ -90,17 +92,17 @@ let formula =
 let kw kw ast = string kw *> whitespace *> return ast
 
 let kw1 kw ast p1 =
-  let* _ = string kw <* whitespace in
+  let* _ = string kw <* whitespace1 in
   let* p1 = p1 in
   ast p1 |> return
 
 let kw2 kw ast p1 p2 =
-  let* _ = string kw <* whitespace in
+  let* _ = string kw <* whitespace1 in
   let* p1 = p1 in
   ast p1 p2
 
 let kw3 kw ast p1 p2 p3 =
-  let* _ = string kw <* whitespace in
+  let* _ = string kw <* whitespace1 in
   let* p1 = p1 in
   let* p2 = p2 in
   let* p3 = p3 in
@@ -114,6 +116,7 @@ let def =
 
 let stmt =
   kw1 "eval" Ast.eval formula
+  <|> kw1 "evalsemenov" Ast.eval_semenov formula
   <|> kw3 "let" Ast.def (ident <* whitespace)
         (many (whitespace *> ident))
         (whitespace *> char '=' *> whitespace *> formula)

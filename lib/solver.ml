@@ -12,6 +12,8 @@ let ( let* ) = Result.bind
 
 let return = Result.ok
 
+let throw_if cond a = if cond then Result.error a else Result.ok ()
+
 let s = ref {preds= []; vars= Map.empty; total= 0; progress= 0}
 
 let collect f =
@@ -168,9 +170,6 @@ let eval s ast =
             let _args = List.map (teval s) args in
             let nfa = pred_nfa in
             nfa |> return
-        | Ast.Pow2 x ->
-            let _, a = teval s x in
-            a |> return
         | _ ->
             failwith "unimplemented"
     in
@@ -207,6 +206,18 @@ let pred name params f =
   return ()
 
 let proof f =
+  let* _ =
+    throw_if
+      (Ast.for_some
+         (fun _ -> false)
+         (function Ast.Pow (_, _) -> true | _ -> false)
+         f )
+      ""
+  in
+  let* nfa, _ = f |> eval !s in
+  Nfa.run nfa |> return
+
+let proof_semenov f =
   let* nfa, _ = f |> eval !s in
   Nfa.run nfa |> return
 

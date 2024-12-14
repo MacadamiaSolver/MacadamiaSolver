@@ -199,7 +199,6 @@ let remove_unreachable nfa =
 
 let update_final_states_nfa nfa =
   let reversed_transitions = nfa.transitions |> Graph.reverse in
-  Printf.printf "\n%!";
   let final =
     let visited = Array.make (length nfa) false in
     let rec bfs reachable = function
