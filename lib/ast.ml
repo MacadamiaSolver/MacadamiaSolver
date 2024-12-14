@@ -30,11 +30,11 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
-  | Pow2 of term
 
 type stmt =
   | Def of string * varname list * formula
   | Eval of formula
+  | EvalSemenov of formula
   | Dump of formula
   | Parse of formula
   | List
@@ -85,6 +85,8 @@ let any x y = Any (x, y)
 let def x p f = Def (x, p, f)
 
 let eval f = Eval f
+
+let eval_semenov f = EvalSemenov f
 
 let dump f = Dump f
 
@@ -147,8 +149,6 @@ let rec pp_formula ppf = function
            ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
            Format.pp_print_string )
         a pp_formula b
-  | Pow2 a ->
-      Format.fprintf ppf "(Pow2 %a)" pp_term a
 
 let quantifier_ast_exn = function
   | Exists _ ->
@@ -208,8 +208,6 @@ let fold ff ft acc f =
         ff (foldf acc f1) f
     | Pred (_, _) as f ->
         ff acc f
-    | _ ->
-        failwith "Unimplemented"
   in
   foldf acc f
 
@@ -267,7 +265,5 @@ let map ff ft f =
         Any (a, mapf f1) |> ff
     | Pred (_, _) as f ->
         f |> ff
-    | _ ->
-        failwith "Unimplemented"
   in
   mapf f
