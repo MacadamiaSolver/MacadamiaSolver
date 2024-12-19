@@ -690,6 +690,6 @@ let proof_semenov formula =
              (* Format.printf "%a\n" Nfa.format_nfa order_nfa; *)
              Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
          in
-         Format.printf "nfa_with_order: %a\n" Nfa.format_nfa nfa;
+         (* Format.printf "nfa_with_order: %a\n" Nfa.format_nfa nfa; *)
          proof_order nfa order |> Result.ok )
   |> first
