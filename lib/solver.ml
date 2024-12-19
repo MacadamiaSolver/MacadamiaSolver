@@ -562,6 +562,7 @@ let%expect_test "Decide order basic" =
   [%expect {| 2**x x y; 2**x y x; y 2**x x |}]
 
 let proof_semenov formula =
+  internal_counter := 0;
   let* nfa, vars = eval !s formula in
   let nfa = Nfa.minimize nfa in
   let s = {!s with vars} in
@@ -578,10 +579,13 @@ let proof_semenov formula =
     (*      ~pp_sep:(fun ppf () -> Format.fprintf ppf ", ") *)
     (*      Format.pp_print_string ) *)
     (*   order; *)
+    let nfa = Nfa.minimize nfa in
     (* Format.printf "nfa: %a\n" Nfa.format_nfa nfa; *)
     match order with
       | [] ->
           nfa |> Nfa.run_nfa
+      | x :: y :: tl when (not (is_exp y)) && is_exp x ->
+          proof_order (Nfa.project [get_deg y] nfa) (x :: tl)
       | x :: tl -> (
         match is_exp x with
           | false ->
@@ -614,9 +618,11 @@ let proof_semenov formula =
                   if proof_order t tl then true
                   else
                     let nfa =
-                      nfa |> Nfa.truncate 32
-                      |> Nfa.intersect
-                           (NfaCollection.torename2 (get_deg x') inter)
+                      if is_exp next then nfa
+                      else
+                        nfa |> Nfa.truncate 32
+                        |> Nfa.intersect
+                             (NfaCollection.torename2 (get_deg x') inter)
                     in
                     (* vars *)
                     (* |> Map.iteri ~f:(fun ~key ~data -> *)
@@ -642,19 +648,16 @@ let proof_semenov formula =
                       t |> List.to_seq
                       |> Seq.flat_map (fun (nfa, chrobak) ->
                              let a =
+                               (* Format.printf "Next is exp: %b\n" (is_exp next); *)
                                ( match is_exp next with
-                                 | _ ->
-                                     let t =
-                                       nfa_for_exponent s
-                                         (Map.find_exn s.vars x') inter chrobak
-                                     in
-                                     (* Format.printf "%a\n" Nfa.format_nfa nfa; *)
-                                     t
-                                     (* | true -> *)
-                                     (*     let y = get_exp next in *)
-                                     (*     nfa_for_exponent2 s (Map.find_exn s.vars x') *)
-                                     (*       (Map.find_exn s.vars y) chrobak *)
-                                 )
+                                 | false ->
+                                     nfa_for_exponent s (Map.find_exn s.vars x')
+                                       inter chrobak
+                                 | true ->
+                                     let y = get_exp next in
+                                     nfa_for_exponent2 s
+                                       (Map.find_exn s.vars x')
+                                       (Map.find_exn s.vars y) chrobak )
                                |> List.map (Nfa.intersect nfa)
                              in
                              (* a *)

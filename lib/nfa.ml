@@ -646,6 +646,8 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   {transitions; final= nfa.final; start; deg= nfa.deg}
 
 let chrobak (nfa : t) =
+  let nfa = minimize nfa in
+  (* Format.printf "chrobak input: %a\n" format_nfa nfa; *)
   let important =
     Graph.find_important_verticies nfa.transitions
     |> List.filter (fun (_, b) -> b <> 0)
