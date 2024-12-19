@@ -10,3 +10,6 @@ val geq : varpos -> varpos -> Nfa.t
 val lt : varpos -> varpos -> Nfa.t
 val gt : varpos -> varpos -> Nfa.t
 val torename : varpos -> int -> int -> Nfa.t
+val torename2 : int -> int -> Nfa.t
+val power_of_two : int -> Nfa.t
+val mul : res:varpos -> lhs:int -> rhs:varpos -> Nfa.t

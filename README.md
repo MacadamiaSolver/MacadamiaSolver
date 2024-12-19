@@ -1,6 +1,6 @@
 # MacadamiaSolver
 
-__MacadamiaSolver__ (or simple __MandmS__ as an acronym for MacANDaMia solver) is a theorem prover (SMT-solver) in Presburger Arithmetic based on the finite-automata approach for deciding.
+__MacadamiaSolver__ (or simple __MandmS__ as an acronym for MacANDaMia solver) is a theorem prover (SMT-solver) in Presburger Arithmetic based on the finite-automata approach for deciding. It also supports [existential Semёnov arithmetic](https://arxiv.org/abs/2306.14593) (i.e. existential theory `<N, 2**x, +, =>`).
 
 ## Dependencies
 To build the project you'll need these dependencies to be installed:
@@ -37,6 +37,7 @@ Commands supported by the REPL and their semantics:
 - `let <name> <params...> = <FOL formula>` - define a new predicate.
 - `list` - list existing predicates.
 - `eval <formula>` - prove a theorem.
+- `evalsemenov <formula>` - prove an existential Semёnov arithmetic theorem.
 - `dump <FOL formula>` - display the automaton for the desired FOL formula using GraphViz.
 - `parse <FOL formula>` - display the AST tree for the FOL formula.
 - `help` - display help information.
@@ -72,19 +73,24 @@ var ::= [a-zA-Z_][a-zA-Z_0-9]*
 const ::= [0-9]+
 ```
 
-Example usage:
+Example usages:
 ```
-eval Ax Ey x = y + 1
+> eval Ax Ey x = y + 1
+  Result: true
+
+> let even x = Ey x = 2y
+> eval AxAyAz x + y = z & even(x) & even(y) -> even(z + 1)
+  Result: false
+
+> eval AxAyAz x + y = z & even(x) & even(y) -> even(z)
+  Result: true
+
+> evalsemenov 2**x = 2**y + 2**z + 7
+  Result: true
 ```
 
-Output:
-```
-Result: true
-```
 
 ## Future development
 
 Our future plans include:
-- Supporting predicates.
-- Implementing the prover for the existential Semёnov arithmetic (`<N, 2**x, +, <, ...>`).
 - Supporting SMT-Lib for evaluating benchmarks
