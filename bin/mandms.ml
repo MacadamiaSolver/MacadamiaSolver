@@ -12,8 +12,13 @@ let exec line = function
             Format.printf "Result: %b\n\n%!" res
         | Error msg ->
             Format.printf "Error: %s\n\n%!" msg )
-  | Ast.EvalSemenov _f ->
-      Format.printf "Semenov arithmetic is not yet supported\n\n%!"
+  | Ast.EvalSemenov f -> (
+      let res = Solver.proof_semenov f in
+      match res with
+        | Ok res ->
+            Format.printf "Result: %b\n\n%!" res
+        | Error msg ->
+            Format.printf "Error: %s\n\n%!" msg )
   | Ast.Dump f -> (
     match Solver.dump f with
       | Ok s ->
