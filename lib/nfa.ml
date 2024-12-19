@@ -661,16 +661,20 @@ let get_chrobaks_sub_nfas nfa ~res ~temp =
   let temp_lbl = (mask, mask) in
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
   (* Format.printf "exp subnfa: %a\n" format_nfa exp_nfa; *)
+  let build_new_nfa mid =
+    let final = length nfa in
+    let transitions =
+      Array.append nfa.transitions [|[]|]
+      |> Array.map
+           (List.concat_map (fun ((lbl, fin) as arrow) ->
+                if fin <> mid || not (Label.equal lbl temp_lbl) then [arrow]
+                else [arrow; (lbl, final)] ) )
+    in
+    {nfa with final= Set.singleton final; transitions}
+  in
   exp_nfa.start |> Set.to_list
   |> List.map (fun mid ->
-         ( { nfa with
-             final= Set.singleton mid
-           ; transitions=
-               nfa.transitions
-               |> Array.map
-                    (List.filter (fun (lbl, fin) ->
-                         fin <> mid || Label.equal lbl temp_lbl ) ) }
-         , chrobak {exp_nfa with start= Set.singleton mid} ) )
+         (build_new_nfa mid, chrobak {exp_nfa with start= Set.singleton mid}) )
 
 let%expect_test "Find basic components" =
   Format.printf "%a"
