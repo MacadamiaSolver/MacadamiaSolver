@@ -178,7 +178,6 @@ let teval s ast =
               failwith "unimplemented" )
   in
   let nfa = teval ast in
-  internal_counter := Map.length s.vars;
   nfa
 
 let eval s ast =
@@ -190,6 +189,7 @@ let eval s ast =
   let s = {preds= s.preds; vars; total= 0; progress= 0} in
   let deg () = Map.length s.vars in
   let var_exn v = Map.find_exn s.vars v in
+  let reset_internals () = internal_counter := Map.length s.vars in
   let rec eval ast =
     let nfa =
       match ast with
@@ -200,6 +200,7 @@ let eval s ast =
         | Ast.Eq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
+            reset_internals ();
             NfaCollection.eq lv rv (deg ())
             |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
@@ -207,6 +208,7 @@ let eval s ast =
         | Ast.Leq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
+            reset_internals ();
             NfaCollection.leq lv rv (deg ())
             |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
@@ -214,6 +216,7 @@ let eval s ast =
         | Ast.Geq (l, r) ->
             let lv, la = teval s l in
             let rv, ra = teval s r in
+            reset_internals ();
             NfaCollection.geq lv rv (deg ())
             |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
@@ -548,6 +551,24 @@ let%expect_test "Proof simple any quantified formula" =
     ( {|Ax x = 2 | ~(x = 2)|} |> Parser.parse_formula |> Result.get_ok |> proof
     |> Result.get_ok );
   [%expect {| true |}]
+
+let%expect_test "Proof 2 <= 3" =
+  Format.printf "%b"
+    ( {|2 <= 3|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Proof zero is the least" =
+  Format.printf "%b"
+    ( {|Ax x >= 0|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Disproof 3 >= 15" =
+  Format.printf "%b"
+    ( {|3 >= 15|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| false |}]
 
 let%expect_test "Decide order basic" =
   let s = ref {preds= []; vars= Map.empty; total= 0; progress= 0} in
