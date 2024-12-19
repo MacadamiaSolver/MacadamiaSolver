@@ -71,12 +71,45 @@ let lt lhs rhs =
 let gt x y = lt y x
 
 let torename var a c =
-  let trans1 =
-    List.init (a + c - 1) Fun.id |> List.map (fun x -> (x, 0b0, x + 1))
-  in
+  if c = 0 then
+    let trans1 = List.init a Fun.id |> List.map (fun x -> (x, 0b0, x + 1)) in
+    Nfa.create_nfa
+      ~transitions:([(a, 0b1, a + 1); (a + 1, 0b0, a + 1)] @ trans1)
+      ~start:[0]
+      ~final:[a + 1]
+      ~vars:[var] ~deg:(var + 1)
+  else
+    let trans1 =
+      List.init (a + c - 1) Fun.id |> List.map (fun x -> (x, 0b0, x + 1))
+    in
+    Nfa.create_nfa
+      ~transitions:
+        ([(a + c - 1, 0b0, a); (a, 0b1, a + c); (a + c, 0b0, a + c)] @ trans1)
+      ~start:[0]
+      ~final:[a + c]
+      ~vars:[var] ~deg:(var + 1)
+
+let torename2 var exp =
   Nfa.create_nfa
-    ~transitions:
-      ([(a + c - 1, 0b0, a); (a, 0b1, a + c); (a + c, 0b0, a + c)] @ trans1)
-    ~start:[0]
-    ~final:[a + c]
-    ~vars:[var] ~deg:(var + 1)
+    ~transitions:[(0, 0b10, 0); (0, 0b00, 0); (0, 0b11, 1); (1, 0b00, 1)]
+    ~start:[0] ~final:[1] ~vars:[var; exp] ~deg:32
+
+let mul ~res ~lhs ~rhs =
+  let rec helper ~res ~lhs ~rhs =
+    match lhs with
+      | 0 ->
+          eq_const res 0
+      | 1 ->
+          eq res rhs
+      | _ when lhs mod 2 = 0 ->
+          let newvar = max (max res lhs) rhs + 1 in
+          let a = helper ~res:newvar ~lhs:(lhs / 2) ~rhs in
+          let b = add ~sum:res ~lhs:newvar ~rhs:newvar in
+          Nfa.intersect a b |> Nfa.project [newvar]
+      | _ ->
+          let newvar = max (max res lhs) rhs + 1 in
+          let a = helper ~res:newvar ~lhs:(lhs - 1) ~rhs in
+          let b = add ~sum:res ~lhs:newvar ~rhs in
+          Nfa.intersect a b |> Nfa.project [newvar]
+  in
+  helper ~res ~lhs ~rhs |> Nfa.minimize
