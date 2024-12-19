@@ -54,6 +54,22 @@ let leq lhs rhs =
 
 let geq x y = leq y x
 
+let lt lhs rhs =
+  Nfa.create_nfa
+    ~transitions:
+      [ (0, 0b01, 1)
+      ; (0, 0b11, 0)
+      ; (0, 0b10, 0)
+      ; (0, 0b00, 0)
+      ; (1, 0b11, 1)
+      ; (1, 0b01, 1)
+      ; (1, 0b00, 1)
+      ; (1, 0b10, 0) ]
+    ~start:[0] ~final:[1] ~vars:[lhs; rhs]
+    ~deg:(max lhs rhs + 1)
+
+let gt x y = lt y x
+
 let torename var a c =
   let trans1 =
     List.init (a + c - 1) Fun.id |> List.map (fun x -> (x, 0b0, x + 1))

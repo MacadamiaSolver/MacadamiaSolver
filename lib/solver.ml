@@ -139,6 +139,20 @@ let eval s ast =
             NfaCollection.geq lv rv |> Nfa.intersect la |> Nfa.intersect ra
             |> Nfa.truncate (deg ())
             |> return
+        | Ast.Lt (l, r) ->
+            let lv, la = teval s l in
+            let rv, ra = teval s r in
+            reset_internals ();
+            NfaCollection.lt lv rv |> Nfa.intersect la |> Nfa.intersect ra
+            |> Nfa.truncate (deg ())
+            |> return
+        | Ast.Gt (l, r) ->
+            let lv, la = teval s l in
+            let rv, ra = teval s r in
+            reset_internals ();
+            NfaCollection.gt lv rv |> Nfa.intersect la |> Nfa.intersect ra
+            |> Nfa.truncate (deg ())
+            |> return
         | Ast.Mnot f ->
             let* nfa = eval f in
             nfa |> Nfa.invert |> return
@@ -279,3 +293,15 @@ let%expect_test "Disproof 3 >= 15" =
     ( {|3 >= 15|} |> Parser.parse_formula |> Result.get_ok |> proof
     |> Result.get_ok );
   [%expect {| false |}]
+
+let%expect_test "Proof less than 1 is zero" =
+  Format.printf "%b"
+    ( {|Ax x < 1 -> x = 0|} |> Parser.parse_formula |> Result.get_ok |> proof
+    |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Proof if x > 3 and y > 4 then x + y > 7" =
+  Format.printf "%b"
+    ( {|AxAy x > 3 & y > 4 -> x + y > 7|} |> Parser.parse_formula
+    |> Result.get_ok |> proof |> Result.get_ok );
+  [%expect {| true |}]
