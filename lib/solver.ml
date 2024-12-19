@@ -605,7 +605,7 @@ let proof_semenov formula =
     match order with
       | [] ->
           nfa |> Nfa.run_nfa
-      | x :: y :: tl when (not (is_exp y)) && is_exp x ->
+      | x :: y :: tl when (not (is_exp y)) && is_exp x && get_exp x <> y ->
           proof_order (Nfa.project [get_deg y] nfa) (x :: tl)
       | x :: tl -> (
         match is_exp x with
