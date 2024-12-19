@@ -10,7 +10,11 @@ let exec line = function
     (match res with
      | Ok res -> Format.printf "Result: %b\n\n%!" res
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
-  | Ast.EvalSemenov _f -> Format.printf "Semenov arithmetic is not yet supported\n\n%!"
+  | Ast.EvalSemenov f ->
+    let res = Solver.proof_semenov f in
+    (match res with
+     | Ok res -> Format.printf "Result: %b\n\n%!" res
+     | Error msg -> Format.printf "Error: %s\n\n%!" msg)
   | Ast.Dump f ->
     (match Solver.dump f with
      | Ok s ->
@@ -41,15 +45,17 @@ let exec line = function
 
 let () =
   let rec aux () =
-    let line = read_line () in
-    let stmt = Parser.parse line in
-    match stmt with
-    | Ok stmt ->
-      exec line stmt;
+    try
+      Format.printf "> %!";
+      let line = read_line () in
+      Format.printf "  %!";
+      let stmt = Parser.parse line in
+      (match stmt with
+       | Ok stmt -> exec line stmt
+       | Error msg -> Format.printf "Error: %s\n\n%!" msg);
       aux ()
-    | Error msg ->
-      Format.printf "Error: %s\n\n%!" msg;
-      aux ()
+    with
+    | End_of_file -> ()
   in
   aux ()
 ;;

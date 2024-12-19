@@ -133,7 +133,6 @@ module Label = struct
     in
     vec, mask
   ;;
-  (*let deg (_, mask) = Bitv.length mask*)
 end
 
 module Graph = struct
@@ -150,6 +149,115 @@ module Graph = struct
            delta)
       graph;
     rev_graph
+  ;;
+
+  let reachable_in_range (graph : t) first last (init : state Set.t) =
+    assert (first <= last);
+    let diff = last - first + 1 in
+    let rec helper n cur =
+      match n with
+      | 0 -> [ cur ], 1
+      | n ->
+        let states =
+          cur
+          |> Set.to_sequence
+          |> Sequence.concat_map ~f:(fun state ->
+            graph.(state) |> Sequence.of_list |> Sequence.map ~f:snd)
+          |> Set.of_sequence
+        in
+        let next, amount = helper (n - 1) states in
+        if amount < diff then states :: next, amount + 1 else next, amount
+    in
+    helper last init |> fst
+  ;;
+
+  let rec _reachable (graph : t) (start : state Set.t) : state Set.t =
+    let next =
+      start
+      |> Set.to_sequence
+      |> Sequence.concat_map ~f:(fun i -> graph.(i) |> List.map snd |> Sequence.of_list)
+      |> Set.of_sequence
+    in
+    let next = Set.diff next start in
+    if Set.is_empty next then start else _reachable graph (Set.union start next)
+  ;;
+
+  let find_strongly_connected_components (graph : t) =
+    let s = Stack.create () in
+    let rev_graph = reverse graph in
+    let visited = Array.make (verticies graph) false in
+    let dfs1 v =
+      let rec dfs1 v =
+        if visited.(v) |> not
+        then (
+          visited.(v) <- true;
+          let us = graph.(v) |> List.map snd in
+          List.iter (fun u -> if visited.(u) |> not then dfs1 u else ()) us;
+          Stack.push v s)
+      in
+      dfs1 v
+    in
+    Array.iteri (fun v _ -> dfs1 v) graph;
+    let visited = Array.make (verticies graph) false in
+    let rec dfs2 v =
+      if visited.(v) |> not
+      then (
+        visited.(v) <- true;
+        let us = rev_graph.(v) |> List.map snd in
+        v
+        :: (List.map (fun u -> if visited.(u) |> not then dfs2 u else []) us
+            |> List.concat))
+      else []
+    in
+    Stack.to_seq s
+    |> Seq.filter_map (fun v ->
+      if visited.(v) |> not then Option.some (dfs2 v) else Option.none)
+    |> List.of_seq
+  ;;
+
+  let union_list (graphs : t list) : t =
+    match graphs with
+    | [] -> Array.init 0 (Fun.const [])
+    | hd :: tl ->
+      let len = Array.length hd in
+      tl |> List.iter (fun graph -> assert (Array.length graph = len));
+      let res = Array.init len (Fun.const []) in
+      0 -- pred len
+      |> List.iter (fun i ->
+        res.(i) <- graphs |> List.concat_map (fun graph -> graph.(i)));
+      res
+  ;;
+
+  let find_shortest_cycle (graph : t) (vertex : state) : int =
+    let rec helper acc visited cur =
+      if Set.is_empty cur
+      then 0
+      else (
+        let acc = acc + 1 in
+        let next =
+          cur
+          |> Set.to_list
+          |> List.concat_map (fun x -> graph.(x) |> List.map snd)
+          |> Set.of_list
+        in
+        if Set.mem next vertex
+        then acc
+        else (
+          let visited = Set.union visited cur in
+          helper acc visited (Set.diff next visited)))
+    in
+    helper 0 Set.empty (Set.singleton vertex)
+  ;;
+
+  let find_important_verticies graph =
+    let components = find_strongly_connected_components graph in
+    List.filter_map
+      (fun vs ->
+         List.nth_opt
+           (List.map (fun v -> v, find_shortest_cycle graph v) vs
+            |> List.sort (fun x y -> snd x - snd y))
+           0)
+      components
   ;;
 end
 
@@ -172,7 +280,7 @@ let remove_unreachable nfa =
       | [] -> reachable
       | q :: tl ->
         if visited.(q)
-        then reachable
+        then bfs reachable tl
         else (
           visited.(q) <- true;
           let reachable = Set.add reachable q in
@@ -412,7 +520,7 @@ let reenumerate map nfa =
 ;;
 
 let project to_remove nfa =
-  let transitions = nfa.transitions in
+  let transitions = Array.copy nfa.transitions in
   Array.iteri
     (fun q delta ->
        let project (label, q') = Label.project to_remove label, q' in
@@ -547,7 +655,9 @@ let to_dfa nfa =
   { final; start = Set.singleton 0; transitions; deg = nfa.deg; is_dfa = true }
 ;;
 
-let minimize nfa = nfa |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+let minimize nfa =
+  nfa |> remove_unreachable |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+;;
 
 let invert nfa =
   (* We need complete DFA here, to_dfa() makes a complete DFA thus we're using it. *)
@@ -560,4 +670,155 @@ let invert nfa =
   ; deg = dfa.deg
   ; is_dfa = true
   }
+;;
+
+let find_c_d (nfa : t) (imp : (int, int) Map.t) =
+  assert (Set.length nfa.start = 1);
+  let n = length nfa in
+  let reachable_in_range = Graph.reachable_in_range nfa.transitions in
+  let reachable_in n init = reachable_in_range n n init |> List.hd in
+  let r1 =
+    0 -- ((n * n) - 1) (* TODO: do not map, collect thing *)
+    |> List.filter (fun i ->
+      reachable_in i nfa.start |> Set.are_disjoint nfa.final |> not)
+    |> Set.of_list
+  in
+  let states = reachable_in (n - 1) nfa.start in
+  let states =
+    states
+    |> Set.to_sequence
+    |> Sequence.filter_map ~f:(fun state ->
+      Map.find imp state |> Option.map (fun d -> state, d))
+  in
+  let r2 =
+    states
+    |> Sequence.concat_map ~f:(fun (state, d) ->
+      let first = (n * n) - n - d in
+      let last = (n * n) - n - 1 in
+      reachable_in_range first last (Set.singleton state)
+      |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
+      |> Base.List.zip_exn (first -- last)
+      |> List.filter snd
+      |> List.map fst
+      |> List.map (fun c -> c + n - 1, d)
+      |> Sequence.of_list)
+    |> Sequence.map ~f:(fun (c, d) ->
+      let rec helper c = if Set.mem r1 (c - d) then helper (c - d) else c in
+      helper c, d)
+    |> Sequence.to_list
+  in
+  let r1 =
+    r1
+    |> Set.to_list
+    |> List.filter (fun c ->
+      List.exists (fun (c1, d) -> c mod d = 0 && c / d >= c1) r2 |> not)
+    |> List.map (fun c -> c, 0)
+  in
+  r2 @ r1
+;;
+
+let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
+  Debug.dump_nfa ~msg:"Exponent sub_nfa input: %s" format_nfa nfa;
+  let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
+  let zero_lbl = Bitv.init 32 (Fun.const false), mask in
+  let res_lbl = Bitv.init 32 (( = ) res), mask in
+  let pow_lbl = Bitv.init 32 (( = ) temp), mask in
+  let one_lbl = Bitv.init 32 (Fun.const true), mask in
+  let reversed_transitions = nfa.transitions |> Graph.reverse in
+  let end_transitions =
+    reversed_transitions
+    |> Array.mapi (fun src list ->
+      if Set.mem nfa.final src
+      then list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
+      else [])
+  in
+  let pre_final =
+    end_transitions |> Array.to_list |> List.concat |> List.map snd |> Set.of_list
+  in
+  let zero_transitions, states =
+    let all_zero_transitions =
+      reversed_transitions
+      |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+    in
+    let rec helper acc visited cur =
+      if Set.is_empty cur
+      then acc, visited
+      else (
+        let next_transitions =
+          all_zero_transitions
+          |> Base.Array.mapi ~f:(fun i x -> if Set.mem cur i then x else [])
+        in
+        next_transitions |> Base.Array.iteri ~f:(fun i list -> acc.(i) <- list @ acc.(i));
+        let visited = Set.union visited cur in
+        let next =
+          Set.diff
+            (next_transitions
+             |> Array.to_list
+             |> List.concat_map (List.map snd)
+             |> Set.of_list)
+            visited
+        in
+        helper acc visited next)
+    in
+    helper (Array.map (Fun.const []) all_zero_transitions) Set.empty pre_final
+  in
+  let start =
+    states
+    |> Set.filter ~f:(fun i ->
+      reversed_transitions.(i)
+      |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
+      |> List.is_empty
+      |> not)
+  in
+  let start_final =
+    nfa.final
+    |> Set.filter ~f:(fun i ->
+      reversed_transitions.(i)
+      |> List.filter (fun (lbl, _) -> Label.equal lbl one_lbl)
+      |> List.is_empty
+      |> not)
+  in
+  let start = Set.union start start_final in
+  let transitions =
+    Graph.union_list [ end_transitions; zero_transitions ] |> Graph.reverse
+  in
+  let result = { transitions; final = nfa.final; start; deg = nfa.deg; is_dfa = false } in
+  Debug.dump_nfa ~msg:"Exponent sub_nfa output: %s" format_nfa result;
+  result
+;;
+
+let chrobak (nfa : t) =
+  Debug.dump_nfa ~msg:"Chrobak input: %s" format_nfa nfa;
+  let important =
+    Graph.find_important_verticies nfa.transitions
+    |> List.filter (fun (_, b) -> b <> 0)
+    |> Map.of_alist_exn
+  in
+  (* important *)
+  (* |> Map.iteri ~f:(fun ~key ~data -> Format.printf "state=%d,d=%d\n" key data); *)
+  let result = find_c_d nfa important in
+  Debug.printf "Chrobak output:";
+  Format.pp_print_list
+    (fun fmt (a, b) -> Format.fprintf fmt " (%d, %d)" a b)
+    Debug.fmt
+    result;
+  Debug.printfln "";
+  result
+;;
+
+let get_chrobaks_sub_nfas nfa ~res ~temp =
+  let mask = Bitv.init 32 (( = ) temp) in
+  let temp_lbl = mask, mask in
+  let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
+  exp_nfa.start
+  |> Set.to_list
+  |> List.map (fun mid ->
+    ( { nfa with
+        final = Set.singleton mid
+      ; transitions =
+          nfa.transitions
+          |> Array.map
+               (List.filter (fun (lbl, fin) -> fin <> mid || Label.equal lbl temp_lbl))
+      }
+    , chrobak { exp_nfa with start = Set.singleton mid } ))
 ;;
