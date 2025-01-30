@@ -144,20 +144,8 @@ let length nfa = Array.length nfa.transitions
 
 let states nfa = 0 -- (length nfa - 1) |> Set.of_list
 
-let reverse_transitions transitions =
-  let reversed_transitions = Array.make (Array.length transitions) [] in
-  Array.iteri
-    (fun q delta ->
-      List.iter
-        (fun (label, q') ->
-          reversed_transitions.(q') <- (label, q) :: reversed_transitions.(q')
-          )
-        delta )
-    transitions;
-  reversed_transitions
-
 let remove_unreachable nfa =
-  let reversed_transitions = nfa.transitions |> reverse_transitions in
+  let reversed_transitions = nfa.transitions |> Graph.reverse in
   let reachable =
     let visited = Array.make (length nfa) false in
     let rec bfs reachable = function
