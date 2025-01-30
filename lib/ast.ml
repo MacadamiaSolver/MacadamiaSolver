@@ -206,8 +206,8 @@ let fold ff ft acc f =
         ff (foldf acc f1) f
     | (Exists (_, f1) | Any (_, f1)) as f ->
         ff (foldf acc f1) f
-    | Pred (_, _) as f ->
-        ff acc f
+    | Pred (_, args) as f ->
+        ff (List.fold_left foldt acc args) f
   in
   foldf acc f
 
