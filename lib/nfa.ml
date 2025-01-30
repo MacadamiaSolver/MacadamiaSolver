@@ -87,8 +87,10 @@ module Label = struct
     (Bitv.bw_and vec proj, Bitv.bw_and mask proj)
 
   let truncate len (vec, mask) =
-    ( Bitv.init len (fun i -> Bitv.get vec i)
-    , Bitv.init len (fun i -> Bitv.get mask i) )
+    ( Bitv.init len (fun i ->
+          if i < Bitv.length vec then Bitv.get vec i else false )
+    , Bitv.init len (fun i ->
+          if i < Bitv.length mask then Bitv.get mask i else false ) )
 
   let is_zero (vec, mask) = Bitv.bw_and vec mask |> Bitv.all_zeros
 
@@ -174,24 +176,25 @@ let remove_unreachable nfa =
   in
   let map_new_old =
     reachable |> Set.to_sequence
-    |> Sequence.mapi ~f:(fun v i -> (i, v))
+    |> Sequence.mapi ~f:(fun i v -> (i, v))
     |> Map.of_sequence_exn
   in
   let map_old_new =
     reachable |> Set.to_sequence
-    |> Sequence.mapi ~f:(fun v i -> (v, i))
+    |> Sequence.mapi ~f:(fun i v -> (v, i))
     |> Map.of_sequence_exn
   in
-  let start = nfa.start |> Set.map ~f:(Map.find_exn map_old_new) in
-  let final = nfa.final |> Set.map ~f:(Map.find_exn map_old_new) in
+  let start = nfa.start |> Set.filter_map ~f:(Map.find map_old_new) in
+  let final = nfa.final |> Set.filter_map ~f:(Map.find map_old_new) in
   let transitions =
-    Array.init (length nfa) (fun q ->
+    Array.init (Set.length reachable) (fun q ->
         let old_q = Map.find_exn map_new_old q in
         let delta = nfa.transitions.(old_q) in
         List.filter_map
           (fun (label, old_q') ->
-            let q' = Map.find_exn map_old_new old_q' in
-            if Set.mem reachable old_q' then Option.some (label, q')
+            if Set.mem reachable old_q' then
+              let q' = Map.find_exn map_old_new old_q' in
+              Option.some (label, q')
             else Option.none )
           delta )
   in
