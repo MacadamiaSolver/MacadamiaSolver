@@ -24,8 +24,6 @@ val create_dfa :
   -> deg:int
   -> t
 
-val map_labels : (int -> int) -> t -> t
-
 val run : t -> bool
 
 val intersect : t -> t -> t
@@ -37,6 +35,8 @@ val project : int list -> t -> t
 val truncate : int -> t -> t
 
 val is_graph : t -> bool
+
+val reenumerate : (int, int) Map.t -> t -> t
 
 val minimize : t -> t
 

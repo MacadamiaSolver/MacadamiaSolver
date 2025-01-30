@@ -14,7 +14,9 @@ let return = Result.ok
 
 let throw_if cond a = if cond then Result.error a else Result.ok ()
 
-let s = ref {preds= []; vars= Map.empty; total= 0; progress= 0}
+let default_s () = {preds= []; vars= Map.empty; total= 0; progress= 0}
+
+let s = ref (default_s ())
 
 let collect f =
   Ast.fold
@@ -22,6 +24,8 @@ let collect f =
       match ast with
         | Ast.Exists (xs, _) | Ast.Any (xs, _) ->
             Set.union acc (Set.of_list xs)
+        | Ast.Pred (_, _) ->
+            acc
         | _ ->
             acc )
     (fun acc x ->
@@ -177,16 +181,24 @@ let eval s ast =
             let x = List.map var_exn x in
             nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> return
         | Ast.Pred (name, args) ->
-            let* _, _pred_params, _, pred_nfa, _pred_vars =
+            let* _, pred_params, _, pred_nfa, pred_vars =
               List.find_opt
                 (fun (pred_name, _, _, _, _) -> pred_name = name)
                 s.preds
               |> Option.to_result
                    ~none:(Format.sprintf "Unknown predicate: %s" name)
             in
-            let _args = List.map (teval s) args in
-            let nfa = pred_nfa in
-            nfa |> return
+            let args = List.map (teval s) args in
+            reset_internals ();
+            let map =
+              List.mapi
+                (fun i (v, _) ->
+                  (v, List.nth pred_params i |> Map.find_exn pred_vars) )
+                args
+              |> Map.of_alist_exn
+            in
+            let nfa = pred_nfa |> Nfa.reenumerate map in
+            List.fold_left Nfa.intersect nfa (List.map snd args) |> return
         | _ ->
             failwith "unimplemented"
     in
@@ -238,15 +250,15 @@ let proof_semenov f =
   let* nfa, _ = f |> eval !s in
   Nfa.run nfa |> return
 
-let%expect_test "Proof any x > 7 can be represented as a linear combination of \
-                 3 and 5" =
+let%expect_test
+    "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
   Format.printf "%b"
     ( {|AxEyEz x = 3y + 5z | x <= 7|} |> Parser.parse_formula |> Result.get_ok
     |> proof |> Result.get_ok );
   [%expect {| true |}]
 
-let%expect_test "Disproof any x > 6 can be represented as a linear combination \
-                 of 3 and 5" =
+let%expect_test
+    "Disproof any x > 6 can be represented as a linear combination of 3 and 5" =
   Format.printf "%b"
     ( {|AxEyEz x = 3y + 5z | x <= 6|} |> Parser.parse_formula |> Result.get_ok
     |> proof |> Result.get_ok );
@@ -304,4 +316,46 @@ let%expect_test "Proof if x > 3 and y > 4 then x + y > 7" =
   Format.printf "%b"
     ( {|AxAy x > 3 & y > 4 -> x + y > 7|} |> Parser.parse_formula
     |> Result.get_ok |> proof |> Result.get_ok );
+  [%expect {| true |}]
+
+let%expect_test "Proof sum of two even is even" =
+  s := default_s ();
+  {|Ey x = 2y|} |> Parser.parse_formula |> Result.get_ok |> pred "even" ["x"]
+  |> Result.get_ok;
+  Format.printf "%b"
+    ( {|AxAyAz x + y = z & even(x) & even(y) -> even(z)|}
+    |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok );
+  s := default_s ();
+  [%expect {| true |}]
+
+let%expect_test "Proof sum of two even plus one is odd" =
+  s := default_s ();
+  {|Ey x = 2y|} |> Parser.parse_formula |> Result.get_ok |> pred "even" ["x"]
+  |> Result.get_ok;
+  Format.printf "%b"
+    ( {|AxAyAz x + y = z & even(x) & even(y) -> ~even(z + 1)|}
+    |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok );
+  s := default_s ();
+  [%expect {| true |}]
+
+let%expect_test "Disproof sum of two even plus one is even" =
+  s := default_s ();
+  {|Ey x = 2y|} |> Parser.parse_formula |> Result.get_ok |> pred "even" ["x"]
+  |> Result.get_ok;
+  Format.printf "%b"
+    ( {|AxAyAz x + y = z & even(x) & even(y) -> even(z + 1)|}
+    |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok );
+  s := default_s ();
+  [%expect {| false |}]
+
+let%expect_test "Proof a number is even iff it's not odd" =
+  s := default_s ();
+  {|Ey x = 2y|} |> Parser.parse_formula |> Result.get_ok |> pred "even" ["x"]
+  |> Result.get_ok;
+  {|Ey x = 2y + 1|} |> Parser.parse_formula |> Result.get_ok |> pred "odd" ["x"]
+  |> Result.get_ok;
+  Format.printf "%b"
+    ( {|Ax (even(x) -> ~odd(x)) & (~odd(x) -> even(x))|} |> Parser.parse_formula
+    |> Result.get_ok |> proof |> Result.get_ok );
+  s := default_s ();
   [%expect {| true |}]

@@ -110,10 +110,19 @@ module Label = struct
     |> Seq.map (function _, '0' -> '_' | x, _ -> x)
     |> String.of_seq |> Format.fprintf ppf "(%s)"
 
-  let map _f (vec, mask) _deg =
-    (*let vec = Bitv.init (fun n -> ) deg in*)
-    (*let mask = Bitv.init (fun n -> ) deg in*)
-    return (vec, mask)
+  let reenumerate map (vec, mask) =
+    let length =
+      max (Bitv.length vec) ((map |> Map.keys |> List.fold_left max min_int) + 1)
+    in
+    let vec =
+      Bitv.init length (fun i ->
+          match Map.find map i with Some j -> Bitv.get vec j | None -> false )
+    in
+    let mask =
+      Bitv.init length (fun i ->
+          match Map.find map i with Some j -> Bitv.get mask j | None -> false )
+    in
+    (vec, mask)
   (*let deg (_, mask) = Bitv.length mask*)
 end
 
@@ -275,18 +284,6 @@ let create_dfa ~(transitions : (state * int * state) list) ~(start : state)
 
 let run nfa = Set.are_disjoint nfa.start nfa.final |> not
 
-let map_labels f nfa =
-  let _transitions =
-    nfa.transitions
-    |> Array.map (fun delta ->
-           List.map (fun (label, q') -> (Label.map f label, q')) delta )
-  in
-  { start= nfa.start
-  ; final= nfa.final
-  ; transitions= nfa.transitions
-  ; deg= nfa.deg
-  ; is_dfa= nfa.is_dfa }
-
 let intersect nfa1 nfa2 =
   let cartesian_product l1 l2 =
     Set.fold
@@ -365,6 +362,18 @@ let is_graph nfa =
   nfa.transitions
   |> Array.for_all (fun delta ->
          List.for_all (fun (label, _) -> Label.is_zero label) delta )
+
+let reenumerate map nfa =
+  let transitions =
+    nfa.transitions
+    |> Array.map (fun delta ->
+           List.map (fun (label, q') -> (Label.reenumerate map label, q')) delta )
+  in
+  { start= nfa.start
+  ; final= nfa.final
+  ; transitions
+  ; is_dfa= nfa.is_dfa
+  ; deg= Map.keys map |> List.fold_left max min_int }
 
 let project to_remove nfa =
   let transitions = nfa.transitions in
