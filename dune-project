@@ -16,7 +16,7 @@
 (package
  (name MacadamiaSolver)
  (synopsis "Theorem Solver")
- (depends 
+ (depends
   ocaml
   dune
   angstrom

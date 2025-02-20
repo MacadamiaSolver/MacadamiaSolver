@@ -3,7 +3,6 @@
 (* SPDX-License-Identifier: MIT *)
 
 type varname = string
-
 type predname = string
 
 type term =
@@ -44,20 +43,11 @@ type stmt =
 [@@deriving variants]
 
 val pp_term : Format.formatter -> term -> unit
-
 val pp_formula : Format.formatter -> formula -> unit
-
 val quantifier_ast_exn : formula -> varname list -> formula -> formula
-
 val binconj_ast_exn : formula -> formula -> formula -> formula
-
 val tfold : ('acc -> term -> 'acc) -> 'acc -> term -> 'acc
-
-val fold :
-  ('acc -> formula -> 'acc) -> ('acc -> term -> 'acc) -> 'acc -> formula -> 'acc
-
+val fold : ('acc -> formula -> 'acc) -> ('acc -> term -> 'acc) -> 'acc -> formula -> 'acc
 val for_some : (formula -> bool) -> (term -> bool) -> formula -> bool
-
 val for_all : (formula -> bool) -> (term -> bool) -> formula -> bool
-
 val map : (formula -> formula) -> (term -> term) -> formula -> formula
