@@ -1,5 +1,4 @@
-profile = ocamlformat
+profile = janestreet
 version = 0.27.0
-sequence-style = terminator
 match-indent = 2
 match-indent-nested = always
