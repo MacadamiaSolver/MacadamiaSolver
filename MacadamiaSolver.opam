@@ -12,10 +12,12 @@ depends: [
   "dune" {>= "3.16"}
   "angstrom"
   "bitv"
-  "ocamlformat" {= "0.27.0" & dev}
-  "odoc" {with-doc}
+  "ppx_deriving"
+  "ppx_variants_conv"
   "ppx_expect" {with-test}
   "ppx_inline_test" {with-test}
+  "ocamlformat" {dev}
+  "odoc" {with-doc}
 ]
 build: [
   ["dune" "subst"] {dev}

@@ -116,15 +116,13 @@ let def =
 
 let stmt =
   kw1 "eval" Ast.eval formula
-  <|> kw1 "evalsemenov" Ast.eval_semenov formula
+  <|> kw1 "evalsemenov" Ast.evalsemenov formula
   <|> kw3 "let" Ast.def (ident <* whitespace)
         (many (whitespace *> ident))
         (whitespace *> char '=' *> whitespace *> formula)
   <|> kw1 "dump" Ast.dump formula
   <|> kw1 "parse" Ast.parse formula
-  <|> kw "list" (Ast.list ())
-  <|> kw "help" (Ast.help ())
-  <?> "Unknown statement"
+  <|> kw "list" Ast.list <|> kw "help" Ast.help <?> "Unknown statement"
 
 let parse_formula str = parse_string ~consume:Prefix formula str
 

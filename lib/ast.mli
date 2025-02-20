@@ -12,6 +12,7 @@ type term =
   | Add of term * term
   | Mul of int * term
   | Pow of int * term
+[@@deriving variants]
 
 type formula =
   | True
@@ -30,6 +31,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
+[@@deriving variants]
 
 type stmt =
   | Def of string * varname list * formula
@@ -39,62 +41,7 @@ type stmt =
   | Parse of formula
   | List
   | Help
-
-val var : varname -> term
-
-val const : int -> term
-
-val add : term -> term -> term
-
-val mul : int -> term -> term
-
-val pow : int -> term -> term
-
-val pred : predname -> term list -> formula
-
-val mtrue : unit -> formula
-
-val mfalse : unit -> formula
-
-val eq : term -> term -> formula
-
-val neq : term -> term -> formula
-
-val lt : term -> term -> formula
-
-val gt : term -> term -> formula
-
-val leq : term -> term -> formula
-
-val geq : term -> term -> formula
-
-val mnot : formula -> formula
-
-val mand : formula -> formula -> formula
-
-val mor : formula -> formula -> formula
-
-val mimpl : formula -> formula -> formula
-
-val miff : formula -> formula -> formula
-
-val exists : varname list -> formula -> formula
-
-val any : varname list -> formula -> formula
-
-val def : string -> varname list -> formula -> stmt
-
-val eval : formula -> stmt
-
-val eval_semenov : formula -> stmt
-
-val dump : formula -> stmt
-
-val parse : formula -> stmt
-
-val list : unit -> stmt
-
-val help : unit -> stmt
+[@@deriving variants]
 
 val pp_term : Format.formatter -> term -> unit
 

@@ -12,6 +12,7 @@ type term =
   | Add of term * term
   | Mul of int * term
   | Pow of int * term
+[@@deriving variants]
 
 type formula =
   | True
@@ -30,6 +31,7 @@ type formula =
   | Miff of formula * formula
   | Exists of varname list * formula
   | Any of varname list * formula
+[@@deriving variants]
 
 type stmt =
   | Def of string * varname list * formula
@@ -39,62 +41,7 @@ type stmt =
   | Parse of formula
   | List
   | Help
-
-let var x = Var x
-
-let const x = Const x
-
-let add x y = Add (x, y)
-
-let mul x y = Mul (x, y)
-
-let pow x y = Pow (x, y)
-
-let pred n p = Pred (n, p)
-
-let mtrue () = True
-
-let mfalse () = False
-
-let eq x y = Eq (x, y)
-
-let neq x y = Neq (x, y)
-
-let lt x y = Lt (x, y)
-
-let gt x y = Gt (x, y)
-
-let leq x y = Leq (x, y)
-
-let geq x y = Geq (x, y)
-
-let mnot x = Mnot x
-
-let mand x y = Mand (x, y)
-
-let mor x y = Mor (x, y)
-
-let mimpl x y = Mimpl (x, y)
-
-let miff x y = Miff (x, y)
-
-let exists x y = Exists (x, y)
-
-let any x y = Any (x, y)
-
-let def x p f = Def (x, p, f)
-
-let eval f = Eval f
-
-let eval_semenov f = EvalSemenov f
-
-let dump f = Dump f
-
-let parse f = Parse f
-
-let list () = List
-
-let help () = Help
+[@@deriving variants]
 
 let rec pp_term ppf = function
   | Var n ->
