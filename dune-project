@@ -17,14 +17,15 @@
  (name MacadamiaSolver)
  (synopsis "Theorem Solver")
  (depends 
-   ocaml 
-   dune 
-   angstrom 
-   bitv 
-   (ocamlformat
-    (and
-     (= 0.26.2)
-     :dev)))
+  ocaml
+  dune
+  angstrom
+  bitv
+  ppx_deriving
+  ppx_variants_conv
+  (ppx_expect :with-test)
+  (ppx_inline_test :with-test)
+  (ocamlformat :dev))
  (tags
   (solver theorem)))
 
