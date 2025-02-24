@@ -45,15 +45,15 @@ let exec line = function
 
 let () =
   let rec aux () =
-    let line = read_line () in
-    let stmt = Parser.parse line in
-    match stmt with
-    | Ok stmt ->
-      exec line stmt;
+    try
+      let line = read_line () in
+      let stmt = Parser.parse line in
+      (match stmt with
+       | Ok stmt -> exec line stmt
+       | Error msg -> Format.printf "Error: %s\n\n%!" msg);
       aux ()
-    | Error msg ->
-      Format.printf "Error: %s\n\n%!" msg;
-      aux ()
+    with
+    | End_of_file -> ()
   in
   aux ()
 ;;
