@@ -795,6 +795,7 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
 ;;
 
 let chrobak (nfa : t) =
+  Debug.dump_nfa ~msg:"Chrobak input: %s" format_nfa nfa;
   let important =
     Graph.find_important_verticies nfa.transitions
     |> List.filter (fun (_, b) -> b <> 0)
@@ -802,7 +803,14 @@ let chrobak (nfa : t) =
   in
   (* important *)
   (* |> Map.iteri ~f:(fun ~key ~data -> Format.printf "state=%d,d=%d\n" key data); *)
-  find_c_d nfa important
+  let result = find_c_d nfa important in
+  Debug.printf "Chrobak output:";
+  Format.pp_print_list
+    (fun fmt (a, b) -> Format.fprintf fmt " (%d, %d)" a b)
+    Debug.fmt
+    result;
+  Debug.printfln "";
+  result
 ;;
 
 (* |> List.map (fun (a, b) -> (a + 1, b)) *)

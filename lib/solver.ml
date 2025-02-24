@@ -555,7 +555,7 @@ let nfa_for_exponent s var newvar chrob =
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
   let nfa = Nfa.minimize nfa in
-  Debug.dump_nfa ~name:"1. minimized original NFA" nfa;
+  Debug.dump_nfa ~msg:"Minimized original NFA: %s" Nfa.format_nfa nfa;
   let s = { !s with vars } in
   let get_deg x = Map.find_exn vars x in
   let orders : string list list = decide_order vars in
@@ -624,8 +624,8 @@ let proof_semenov formula =
   orders
   |> List.to_seq
   |> Seq.map (fun order ->
-    Debug.printf
-      "Trying order %a\n%!"
+    Debug.printfln
+      "Trying order %a"
       (Format.pp_print_list
          ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ")
          Format.pp_print_string)
@@ -649,7 +649,7 @@ let proof_semenov formula =
         in
         Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
     in
-    Debug.dump_nfa ~name:"2. NFA taking order into account" nfa;
+    Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
     proof_order nfa order |> Result.ok)
   |> first
 ;;
