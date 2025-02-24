@@ -424,6 +424,41 @@ let%expect_test "Proof a number is even iff it's not odd" =
   [%expect {| true |}]
 ;;
 
+let _show_nfa_cnt = ref 0
+
+let _show_nfa ?show ?subdir ?name nfa =
+  let ( !< ) a = Format.sprintf a in
+  let name =
+    match name with
+    | Some name -> name
+    | None ->
+      _show_nfa_cnt := !_show_nfa_cnt + 1;
+      Format.sprintf "%d" !_show_nfa_cnt
+  in
+  let show =
+    match show with
+    | Some show -> show
+    | None -> false
+  in
+  let subdir =
+    match subdir with
+    | Some subdir -> !<"/\"%s\"" subdir
+    | None -> ""
+  in
+  let dir = !<"debugs%s/" subdir in
+  let command = !<"mkdir -p %s" dir in
+  Sys.command command |> ignore;
+  let dot_file = !<"%s\"%s.dot\"" dir name in
+  let svg_file = !<"%s\"%s.svg\"" dir name in
+  let oc = open_out dot_file in
+  let command = !<"dot -Tsvg %s > %s" dot_file svg_file in
+  Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize) |> Printf.fprintf oc "%s";
+  close_out oc;
+  Sys.command command |> ignore;
+  if show then Sys.command (!<"xdg-open %s" svg_file) |> ignore;
+  ()
+;;
+
 let log2 n =
   let rec helper acc = function
     | 0 -> acc
@@ -555,6 +590,7 @@ let nfa_for_exponent s var newvar chrob =
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
   let nfa = Nfa.minimize nfa in
+  _show_nfa ~name:"1. minimized original NFA" nfa;
   let s = { !s with vars } in
   let get_deg x = Map.find_exn vars x in
   let orders : string list list = decide_order vars in
@@ -623,6 +659,12 @@ let proof_semenov formula =
   orders
   |> List.to_seq
   |> Seq.map (fun order ->
+    Format.printf
+      "Trying order %a\n%!"
+      (Format.pp_print_list
+         ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ")
+         Format.pp_print_string)
+      (order |> List.rev);
     let len = List.length order in
     let* nfa =
       if len <= 1
@@ -642,6 +684,7 @@ let proof_semenov formula =
         in
         Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
     in
+    _show_nfa ~name:"2. NFA taking order into account" nfa;
     proof_order nfa order |> Result.ok)
   |> first
 ;;
