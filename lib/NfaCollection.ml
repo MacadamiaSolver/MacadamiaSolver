@@ -116,6 +116,15 @@ let torename2 var exp =
     ~deg:(max var exp + 1)
 ;;
 
+let power_of_two exp =
+  Nfa.create_nfa
+    ~transitions:[ 0, 0b0, 0; 0, 0b1, 1; 1, 0b0, 1 ]
+    ~start:[ 0 ]
+    ~final:[ 1 ]
+    ~vars:[ exp ]
+    ~deg:(exp + 1)
+;;
+
 let mul ~res ~lhs ~rhs =
   let rec helper ~res ~lhs ~rhs =
     match lhs with

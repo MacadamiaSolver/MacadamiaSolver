@@ -17,7 +17,7 @@ let fmt =
 let printf str = Format.fprintf fmt (str ^^ "%!")
 let printfln str = Format.fprintf fmt (str ^^ "\n%!")
 
-let dump_nfa ?msg format_nfa nfa =
+let dump_nfa ?msg ?vars format_nfa nfa =
   if flag ()
   then (
     let ( !< ) a = Format.sprintf a in
@@ -36,7 +36,16 @@ let dump_nfa ?msg format_nfa nfa =
     Format.asprintf "%a" format_nfa nfa |> Printf.fprintf oc "%s";
     close_out oc;
     Sys.command command |> ignore;
-    match msg with
-    | Some msg -> printfln msg svg_file
+    (match msg with
+     | Some msg -> printfln msg svg_file
+     | None -> ());
+    match vars with
+    | Some vars ->
+      Format.pp_print_list
+        ~pp_sep:(fun fmt () -> Format.fprintf fmt "\n")
+        (fun fmt (a, b) -> Format.fprintf fmt "%d -> %s" b a)
+        fmt
+        vars;
+      printfln "\n"
     | None -> ())
 ;;

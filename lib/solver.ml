@@ -85,7 +85,9 @@ let teval s ast =
       v, nfa
     | Ast.Pow (_, x) ->
       (match x with
-       | Ast.Var x -> var_exn ("2**" ^ x), NfaCollection.n ()
+       | Ast.Var x ->
+         let var = var_exn ("2**" ^ x) in
+         var, NfaCollection.power_of_two var
        | _ -> failwith "unimplemented")
   in
   let nfa = teval ast in
@@ -555,7 +557,11 @@ let nfa_for_exponent s var newvar chrob =
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
   let nfa = Nfa.minimize nfa in
-  Debug.dump_nfa ~msg:"Minimized original NFA: %s" Nfa.format_nfa nfa;
+  Debug.dump_nfa
+    ~msg:"Minimized original nfa: %s"
+    ~vars:(Map.to_alist vars)
+    Nfa.format_nfa
+    nfa;
   let s = { !s with vars } in
   let get_deg x = Map.find_exn vars x in
   let orders : string list list = decide_order vars in
@@ -572,6 +578,7 @@ let proof_semenov formula =
     match order with
     | [] -> nfa |> Nfa.run
     | x :: tl ->
+      Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
       (match is_exp x with
        | false -> proof_order (Nfa.project [ get_deg x ] nfa) tl
        | true ->
@@ -590,15 +597,17 @@ let proof_semenov formula =
                 (NfaCollection.eq_const (Map.find_exn s.vars x') 0)
               |> Nfa.truncate (deg ())
             in
-            let t =
+            let zero_nfa =
               nfa |> Nfa.intersect zero_nfa |> Nfa.project [ Map.find_exn s.vars x ]
             in
-            if proof_order t tl
+            Debug.dump_nfa ~msg:"Zero nfa: %s" Nfa.format_nfa zero_nfa;
+            if proof_order zero_nfa tl
             then true
             else (
               let nfa =
                 nfa |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
               in
+              Debug.dump_nfa ~msg:"Zero nfa: %s" Nfa.format_nfa zero_nfa;
               let t = Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x) ~temp in
               let result =
                 t
@@ -615,7 +624,7 @@ let proof_semenov formula =
                   in
                   a |> List.to_seq)
                 |> Seq.map (Nfa.project [ get_deg x; inter ])
-                |> Seq.map (fun nfa -> proof_order nfa tl)
+                |> Seq.map (fun nfa -> proof_order (Nfa.minimize nfa) tl)
                 |> Seq.exists Fun.id
               in
               internal_counter := old_counter;
@@ -753,30 +762,46 @@ let%expect_test "Proof 2**x equals to x + 2 with x = 2" =
   [%expect {| true |}]
 ;;
 
-(* let%expect_test "Disproof 2**x equals to x + 3" =
-  Format.printf "%b"
-    ( {|2**x = x + 3|} |> Parser.parse_formula |> Result.get_ok |> proof_semenov
-    |> Result.get_ok );
-  (* FIXME: False-positive result. *)
-  [%expect {| false |}] *)
+let%expect_test "Disproof 2**x equals to x + 3" =
+  Format.printf
+    "%b"
+    ({|2**x = x + 3|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(*let%expect_test "Proof 2**x can be equal to 2**y + 1" =
-  Format.printf "%b"
-    ( {|2**x = 2**y + 1|} |> Parser.parse_formula |> Result.get_ok |> proof_semenov
-    |> Result.get_ok );
-  (* FIXME: Stuck. *)
-  [%expect {| true |}]*)
+let%expect_test "Proof 2**x can be equal to 2**y + 1" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 1|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(*let%expect_test "Proof 2**x can be equal to 2**y + 2" =
-  Format.printf "%b"
-    ( {|2**x = 2**y + 2|} |> Parser.parse_formula |> Result.get_ok |> proof_semenov
-    |> Result.get_ok );
-  (* FIXME: Stuck. *)
-  [%expect {| true |}]*)
+let%expect_test "Proof 2**x can be equal to 2**y + 2" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 2|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(*let%expect_test "Disproof 2**x can be equal to 2**y + 5" =
-  Format.printf "%b"
-    ( {|2**x = 2**y + 5|} |> Parser.parse_formula |> Result.get_ok |> proof_semenov
-    |> Result.get_ok );
-  (* FIXME: Stuck. *)
-  [%expect {| false |}]*)
+let%expect_test "Disproof 2**x can be equal to 2**y + 5" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 5|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;

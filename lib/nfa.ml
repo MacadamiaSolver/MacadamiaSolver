@@ -706,6 +706,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
 ;;
 
 let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
+  Debug.dump_nfa ~msg:"Exponent sub_nfa input: %s" format_nfa nfa;
   (* Format.printf "res -> %d\ntemp -> %d\n" res temp; *)
   let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
   let zero_lbl = Bitv.init 32 (Fun.const false), mask in
@@ -791,7 +792,9 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let transitions =
     Graph.union_list [ end_transitions; zero_transitions ] |> Graph.reverse
   in
-  { transitions; final = nfa.final; start; deg = nfa.deg; is_dfa = false }
+  let result = { transitions; final = nfa.final; start; deg = nfa.deg; is_dfa = false } in
+  Debug.dump_nfa ~msg:"Exponent sub_nfa output: %s" format_nfa result;
+  result
 ;;
 
 let chrobak (nfa : t) =
