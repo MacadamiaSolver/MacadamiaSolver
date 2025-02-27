@@ -281,7 +281,7 @@ let remove_unreachable nfa =
       | [] -> reachable
       | q :: tl ->
         if visited.(q)
-        then reachable
+        then bfs reachable tl
         else (
           visited.(q) <- true;
           let reachable = Set.add reachable q in
@@ -521,7 +521,7 @@ let reenumerate map nfa =
 ;;
 
 let project to_remove nfa =
-  let transitions = nfa.transitions in
+  let transitions = Array.copy nfa.transitions in
   Array.iteri
     (fun q delta ->
        let project (label, q') = Label.project to_remove label, q' in
@@ -656,7 +656,9 @@ let to_dfa nfa =
   { final; start = Set.singleton 0; transitions; deg = nfa.deg; is_dfa = true }
 ;;
 
-let minimize nfa = nfa |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+let minimize nfa =
+  nfa |> remove_unreachable |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+;;
 
 let invert nfa =
   (* We need complete DFA here, to_dfa() makes a complete DFA thus we're using it. *)
@@ -680,7 +682,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
     0 -- ((n * n) - 1) (* TODO: do not map, collect thing *)
     |> List.filter (fun i ->
       reachable_in i nfa.start |> Set.are_disjoint nfa.final |> not)
-    |> List.map (fun x -> x, 0)
+    |> Set.of_list
   in
   let states = reachable_in (n - 1) nfa.start in
   let states =
@@ -689,20 +691,32 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
     |> Sequence.filter_map ~f:(fun state ->
       Map.find imp state |> Option.map (fun d -> state, d))
   in
-  (states
-   |> Sequence.concat_map ~f:(fun (state, d) ->
-     (* Format.printf "d=%d\n" d; *)
-     let first = (n * n) - n - d in
-     let last = (n * n) - n - 1 in
-     reachable_in_range first last (Set.singleton state)
-     |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
-     |> Base.List.zip_exn (first -- last)
-     |> List.filter snd
-     |> List.map fst
-     |> List.map (fun c -> c + n - 1, d)
-     |> Sequence.of_list)
-   |> Sequence.to_list)
-  @ r1
+  let r2 =
+    states
+    |> Sequence.concat_map ~f:(fun (state, d) ->
+      (* Format.printf "d=%d\n" d; *)
+      let first = (n * n) - n - d in
+      let last = (n * n) - n - 1 in
+      reachable_in_range first last (Set.singleton state)
+      |> List.map (fun set -> not (Set.are_disjoint nfa.final set))
+      |> Base.List.zip_exn (first -- last)
+      |> List.filter snd
+      |> List.map fst
+      |> List.map (fun c -> c + n - 1, d)
+      |> Sequence.of_list)
+    |> Sequence.map ~f:(fun (c, d) ->
+      let rec helper c = if Set.mem r1 (c - d) then helper (c - d) else c in
+      helper c, d)
+    |> Sequence.to_list
+  in
+  let r1 =
+    r1
+    |> Set.to_list
+    |> List.filter (fun c ->
+      List.exists (fun (c1, d) -> c mod d = 0 && c / d >= c1) r2 |> not)
+    |> List.map (fun c -> c, 0)
+  in
+  r2 @ r1
 ;;
 
 let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =

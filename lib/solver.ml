@@ -471,17 +471,37 @@ let decide_order vars =
     a
   in
   let perms = perms (Map.keys vars) in
-  List.filter
-    (fun perm ->
-       Base.List.for_alli
-         ~f:(fun i var ->
-           if is_exp var
-           then (
-             let x = get_exp var in
-             List.find_index (fun y -> x = y) perm |> Option.value ~default:9999999 > i)
-           else true)
-         perm)
-    perms
+  perms
+  |> List.filter (fun perm ->
+    Base.List.for_alli
+      ~f:(fun i var ->
+        if is_exp var
+        then (
+          let x = get_exp var in
+          List.find_index (fun y -> x = y) perm |> Option.value ~default:9999999 > i)
+        else true)
+      perm)
+  |> List.filter (fun perm ->
+    Base.List.for_alli
+      ~f:(fun exi ex ->
+        if is_exp ex
+        then (
+          let x = get_exp ex in
+          match List.find_index (fun x' -> x = x') perm with
+          | Some xi ->
+            Base.List.for_alli
+              ~f:(fun eyi ey ->
+                if is_exp ey && eyi > exi
+                then (
+                  let y = get_exp ey in
+                  match List.find_index (fun y' -> y = y') perm with
+                  | Some yi -> yi > xi
+                  | None -> true)
+                else true)
+              perm
+          | None -> true)
+        else true)
+      perm)
 ;;
 
 let nfa_for_exponent2 s var var2 chrob =
@@ -659,7 +679,12 @@ let proof_semenov formula =
         Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
     in
     Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
-    proof_order nfa order |> Result.ok)
+    (nfa
+     |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
+     |> Nfa.run
+    (* (true *)
+     && (proof_order nfa order))
+    |> Result.ok)
   |> first
 ;;
 
