@@ -87,7 +87,7 @@ let teval s ast =
       (match x with
        | Ast.Var x ->
          let var = var_exn ("2**" ^ x) in
-         var, NfaCollection.power_of_two var
+         var, NfaCollection.n ()
        | _ -> failwith "unimplemented")
   in
   let nfa = teval ast in
@@ -181,15 +181,16 @@ let eval s ast =
           |> Option.to_result ~none:(Format.sprintf "Unknown predicate: %s" name)
         in
         let args = List.map (teval s) args in
-        reset_internals ();
         let map =
           List.mapi
             (fun i (v, _) -> v, List.nth pred_params i |> Map.find_exn pred_vars)
             args
           |> Map.of_alist_exn
         in
+        reset_internals ();
         let nfa = pred_nfa |> Nfa.reenumerate map in
-        List.fold_left Nfa.intersect nfa (List.map snd args) |> return
+        let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
+        nfa |> Nfa.truncate (deg ()) |> return
       | _ -> failwith "unimplemented"
     in
     nfa
@@ -347,6 +348,34 @@ let%expect_test "Proof if x > 3 and y > 4 then x + y > 7" =
      |> proof
      |> Result.get_ok);
   [%expect {| true |}]
+;;
+
+let%expect_test "Proof two is even" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2)|} |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof three is odd" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(3)|} |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
 ;;
 
 let%expect_test "Proof sum of two even is even" =
@@ -578,6 +607,14 @@ let nfa_for_exponent s var newvar chrob =
 
 let proof_semenov formula =
   let* nfa, vars = eval !s formula in
+  let nfa = Nfa.minimize nfa in
+  let nfa =
+    Map.fold
+      ~init:nfa
+      ~f:(fun ~key:k ~data:v acc ->
+        if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
+      vars
+  in
   let nfa = Nfa.minimize nfa in
   Debug.dump_nfa
     ~msg:"Minimized original nfa: %s"
@@ -849,6 +886,114 @@ let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" =
      |> Result.get_ok
      |> proof_semenov
      |> Result.get_ok);
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof exists even 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof exists odd (not even) 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|~even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof not exists odd 2**x having x > 0" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|~even(2**x) & x > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
+;;
+
+let%expect_test "Proof exists even 2**x + 1" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x + 1)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof not exists even 2**x + 1 for x > 0" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x + 1) & x > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
+;;
+
+let%expect_test "Proof exists an even 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
   [%expect {| true |}]
 ;;
 
