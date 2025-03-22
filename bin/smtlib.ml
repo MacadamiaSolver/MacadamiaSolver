@@ -3,9 +3,10 @@ open Lib
 type state =
   { asserts : Ast.formula list
   ; vars : string list
+  ; logic : string
   }
 
-let init = { asserts = []; vars = [] }
+let init = { asserts = []; vars = []; logic = "LIA" }
 let ( let* ) = Result.bind
 let return = Result.ok
 
@@ -105,23 +106,29 @@ let rec formula s = function
   | _ -> Result.error "uninmplemented"
 ;;
 
+let set_logic state logic' = { state with logic = logic' }
+
 let add_assert' ({ asserts; _ } as state) assert' =
   { state with asserts = assert' :: asserts }
 ;;
 
 let add_var ({ vars; _ } as state) var = { state with vars = var :: vars }
 
-let run { asserts; vars; _ } =
+let run { asserts; vars; logic; _ } =
   match asserts with
   | h :: tl ->
-    List.fold_left Ast.mand h tl
-    |> (fun f -> Ast.exists vars f)
-    |> Solver.proof
-    |> Result.get_ok
+    (match logic with
+     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok
+     | _ ->
+       List.fold_left Ast.mand h tl
+       |> (fun f -> Ast.exists vars f)
+       |> Solver.proof
+       |> Result.get_ok)
   | [] -> true
 ;;
 
 let command s = function
+  | Smtlib.SetLogic logic -> set_logic s logic |> Result.ok
   | Smtlib.Assert' f ->
     let* f = formula s f in
     add_assert' s f |> return
@@ -160,5 +167,3 @@ let () =
     s;*)
   script init s |> Result.get_ok
 ;;
-
-(* *)

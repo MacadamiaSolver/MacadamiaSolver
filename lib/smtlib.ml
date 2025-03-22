@@ -271,7 +271,7 @@ let%expect_test "terms" =
 
 type command =
   | SetLogic of string
-  (*| SetOption of option*)
+  | SetOption of string
   | SetInfo of string (* temporary stub *)
   | DeclareSort of string * int
   | DefineSort of string * string list * sort
@@ -293,12 +293,15 @@ type command =
 
 let command =
   let result' =
-    let* keyword = take_while is_symbolchar <* whitespace in
+    let* keyword = take_while is_symbolchar |> token in
     match keyword with
     | "set-logic" -> symbol >>| setlogic
     | "set-info" ->
       let* v = take_while (fun c -> c <> ')') in
       setinfo v |> return
+    | "set-option" ->
+      let* v = take_while (fun c -> c <> ')') in
+      setoption v |> return
     | "declare-fun" ->
       let* name = symbol in
       let* arg_sorts = many sort |> parens in
