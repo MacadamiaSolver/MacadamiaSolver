@@ -3,12 +3,23 @@
 (** SPDX-License-Identifier: MIT *)
 
 open Lib
+module Map = Base.Map.Poly
 
 let exec line = function
   | Ast.Eval f ->
     let res = Solver.proof f in
     (match res with
      | Ok res -> Format.printf "Result: %b\n\n%!" res
+     | Error msg -> Format.printf "Error: %s\n\n%!" msg)
+  | Ast.Evalm f ->
+    let res = Solver.get_model f in
+    (match res with
+     | Ok res ->
+       (match res with
+        | Some model ->
+          Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+          Format.printf "\n%!"
+        | None -> Format.printf "No model\n\n%!")
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
   | Ast.EvalSemenov f ->
     let res = Solver.proof_semenov f in

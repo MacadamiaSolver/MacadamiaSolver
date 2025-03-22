@@ -419,6 +419,39 @@ let create_dfa
 
 let run nfa = Set.are_disjoint nfa.start nfa.final |> not
 
+let any_path nfa vars =
+  let transitions = nfa.transitions in
+  let p =
+    let visited = Array.make (length nfa) false in
+    let rec dfs q =
+      if visited.(q)
+      then None
+      else if Set.mem nfa.final q
+      then Option.some ([], q)
+      else (
+        visited.(q) <- true;
+        let delta = Array.get transitions q in
+        let qs = delta |> List.map snd in
+        match List.find_map (fun q -> dfs q) qs with
+        | Some (path, q') ->
+          Some ((List.find (fun (_, q'') -> q' = q'') delta |> fst) :: path, q)
+        | None ->
+          visited.(q) <- false;
+          None)
+    in
+    nfa.start |> Set.to_list |> List.find_map dfs
+  in
+  match p with
+  | Some (p, _) ->
+    let length = List.length p in
+    List.map
+      (fun var ->
+         Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var) |> Bitv.to_int_s)
+      vars
+    |> Option.some
+  | None -> Option.none
+;;
+
 let intersect nfa1 nfa2 =
   let cartesian_product l1 l2 =
     Set.fold

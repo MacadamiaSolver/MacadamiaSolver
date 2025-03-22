@@ -35,6 +35,7 @@ type formula =
 type stmt =
   | Def of string * varname list * formula
   | Eval of formula
+  | Evalm of formula
   | EvalSemenov of formula
   | Dump of formula
   | Parse of formula

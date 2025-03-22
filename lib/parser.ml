@@ -146,6 +146,7 @@ let def =
 
 let stmt =
   kw1 "eval" Ast.eval formula
+  <|> kw1 "evalm" Ast.evalm formula
   <|> kw1 "evalsemenov" Ast.evalsemenov formula
   <|> kw3
         "let"
