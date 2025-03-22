@@ -37,6 +37,7 @@ Commands supported by the REPL and their semantics:
 - `let <name> <params...> = <FOL formula>` - define a new predicate.
 - `list` - list existing predicates.
 - `eval <formula>` - prove a theorem.
+- `evalm <formula>` - get a model for free variables in a formula.
 - `evalsemenov <formula>` - prove an existential Semёnov arithmetic theorem.
 - `dump <FOL formula>` - display the automaton for the desired FOL formula using GraphViz.
 - `parse <FOL formula>` - display the AST tree for the FOL formula.

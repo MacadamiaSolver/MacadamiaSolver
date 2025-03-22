@@ -33,6 +33,25 @@ let collect f =
     f
 ;;
 
+let collect_free f =
+  Ast.fold
+    (fun acc ast ->
+       match ast with
+       | Ast.Exists (xs, _) | Ast.Any (xs, _) -> Set.diff acc (Set.of_list xs)
+       | Ast.Pred (_, _) -> acc
+       | _ -> acc)
+    (fun acc x ->
+       match x with
+       | Ast.Var x -> Set.add acc x
+       | Ast.Pow (_, x) ->
+         (match x with
+          | Ast.Var x -> Set.add acc x
+          | _ -> failwith "unimplemented")
+       | _ -> acc)
+    Set.empty
+    f
+;;
+
 let _estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
 let internal_counter = ref 0
 
@@ -248,6 +267,29 @@ let proof f =
   Nfa.run nfa |> return
 ;;
 
+let get_model f =
+  let* _ =
+    throw_if
+      (Ast.for_some
+         (fun _ -> false)
+         (function
+           | Ast.Pow (_, _) -> true
+           | _ -> false)
+         f)
+      ""
+  in
+  let* nfa, vars = f |> eval !s in
+  let free_vars = f |> collect_free |> Set.to_list in
+  let model = Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars) in
+  match model with
+  | Some model ->
+    List.mapi (fun i v -> List.nth free_vars i, v) model
+    |> Map.of_alist_exn
+    |> Option.some
+    |> return
+  | None -> Option.none |> return
+;;
+
 let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
   Format.printf
     "%b"
@@ -453,6 +495,36 @@ let%expect_test "Proof a number is even iff it's not odd" =
      |> Result.get_ok);
   s := default_s ();
   [%expect {| true |}]
+;;
+
+let%expect_test "Get a model for x = 3 & y = 7" =
+  s := default_s ();
+  let model =
+    {|x = 3 & y = 7|}
+    |> Parser.parse_formula
+    |> Result.get_ok
+    |> get_model
+    |> Result.get_ok
+    |> Option.get
+  in
+  Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+  s := default_s ();
+  [%expect {| x = 3  y = 7 |}]
+;;
+
+let%expect_test "Get a model for Ey x = 7y & x > 9 & x < 20" =
+  s := default_s ();
+  let model =
+    {|Ey x = 7y & x > 9 & x < 20|}
+    |> Parser.parse_formula
+    |> Result.get_ok
+    |> get_model
+    |> Result.get_ok
+    |> Option.get
+  in
+  Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+  s := default_s ();
+  [%expect {| x = 14 |}]
 ;;
 
 let log2 n =

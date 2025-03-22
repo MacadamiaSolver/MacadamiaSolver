@@ -23,6 +23,7 @@ val create_dfa
   -> t
 
 val run : t -> bool
+val any_path : t -> int list -> int list option
 val intersect : t -> t -> t
 val unite : t -> t -> t
 val project : int list -> t -> t
