@@ -423,33 +423,35 @@ let any_path nfa vars =
   let transitions = nfa.transitions in
   let p =
     let visited = Array.make (length nfa) false in
-    let rec dfs q =
+    let rec dfs len q =
       if visited.(q)
       then None
       else if Set.mem nfa.final q
-      then Option.some ([], q)
+      then Some ([], q, len)
       else (
         visited.(q) <- true;
         let delta = Array.get transitions q in
         let qs = delta |> List.map snd in
-        match List.find_map (fun q -> dfs q) qs with
-        | Some (path, q') ->
-          Some ((List.find (fun (_, q'') -> q' = q'') delta |> fst) :: path, q)
+        match List.find_map (fun q -> dfs (len + 1) q) qs with
+        | Some (path, q', len) ->
+          Some ((List.find (fun (_, q'') -> q' = q'') delta |> fst) :: path, q, len)
         | None ->
           visited.(q) <- false;
           None)
     in
-    nfa.start |> Set.to_list |> List.find_map dfs
+    nfa.start |> Set.to_list |> List.find_map (dfs 0)
   in
   match p with
-  | Some (p, _) ->
+  | Some (p, _, len) ->
     let length = List.length p in
-    List.map
-      (fun var ->
-         Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var) |> Bitv.to_int_s)
-      vars
-    |> Option.some
-  | None -> Option.none
+    Some
+      ( List.map
+          (fun var ->
+             Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var)
+             |> Bitv.to_int_s)
+          vars
+      , len )
+  | None -> None
 ;;
 
 let intersect nfa1 nfa2 =
@@ -839,7 +841,7 @@ let chrobak (nfa : t) =
   result
 ;;
 
-let get_chrobaks_sub_nfas nfa ~res ~temp =
+let get_chrobaks_sub_nfas nfa ~res ~temp ~vars =
   let mask = Bitv.init 32 (( = ) temp) in
   let temp_lbl = mask, mask in
   let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
@@ -853,5 +855,6 @@ let get_chrobaks_sub_nfas nfa ~res ~temp =
           |> Array.map
                (List.filter (fun (lbl, fin) -> fin <> mid || Label.equal lbl temp_lbl))
       }
-    , chrobak { exp_nfa with start = Set.singleton mid } ))
+    , chrobak { exp_nfa with start = Set.singleton mid }
+    , any_path { nfa with start = Set.singleton mid } vars ))
 ;;

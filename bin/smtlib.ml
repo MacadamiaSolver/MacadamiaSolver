@@ -1,4 +1,5 @@
 open Lib
+module Map = Base.Map.Poly
 
 type state =
   { asserts : Ast.formula list
@@ -12,7 +13,7 @@ let return = Result.ok
 
 let rec term s = function
   | Smtlib.Apply (f, _, ts) ->
-    let top2 ast =
+    let _top2 ast =
       let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* t1 = t1 |> term s in
       let* t2 = List.nth_opt ts 1 |> Option.to_result ~none:"expected an argument" in
@@ -30,8 +31,21 @@ let rec term s = function
       | _ ->
         "this operator is only supported between a constant and a term" |> Result.error
     in
+    let cf ast =
+      match ts with
+      | t :: tl ->
+        let* t = term s t in
+        List.fold_left
+          (fun acc t ->
+             let* f = term s t in
+             let* acc = acc in
+             ast acc f |> return)
+          (t |> return)
+          tl
+      | [] -> failwith "expected at least 1 argument"
+    in
     (match f with
-     | "+" -> top2 Ast.add
+     | "+" -> cf Ast.add
      | "exp" -> tiop Ast.pow
      | "*" -> tiop Ast.mul
      | _ -> Ast.var f |> return)
@@ -98,8 +112,8 @@ let rec formula s = function
      | "<" -> top2 Ast.lt
      | ">" -> top2 Ast.gt
      | "not" -> fop1 Ast.mnot
-     | "and" -> fop2 Ast.mand
-     | "or" -> fop2 Ast.mor
+     | "and" -> cf Ast.mand
+     | "or" -> cf Ast.mor
      | "=>" -> fop2 Ast.mimpl
      | _ -> Result.error "uninmplemented")
     (* TODO: string is ignored *)
@@ -118,13 +132,24 @@ let run { asserts; vars; logic; _ } =
   match asserts with
   | h :: tl ->
     (match logic with
-     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok
+     (* | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok *)
      | _ ->
        List.fold_left Ast.mand h tl
        |> (fun f -> Ast.exists vars f)
        |> Solver.proof
        |> Result.get_ok)
   | [] -> true
+;;
+
+let run_model { asserts; logic; _ } =
+  match asserts with
+  | h :: tl ->
+    let formula = List.fold_left Ast.mand h tl in
+    Format.printf "Formula AST: %a\n%!" Ast.pp_formula formula;
+    (match logic with
+     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok
+     | _ -> List.fold_left Ast.mand h tl |> Solver.get_model |> Result.get_ok)
+  | [] -> None
 ;;
 
 let command s = function
@@ -136,6 +161,14 @@ let command s = function
   | Smtlib.CheckSat ->
     let res = run s in
     Format.printf "Result: %b \n" res;
+    s |> Result.ok
+  | Smtlib.GetModel ->
+    let model = run_model s in
+    (match model with
+     | Some model ->
+       Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+       Format.printf "\n%!"
+     | None -> Format.printf "No model\n\n%!");
     s |> Result.ok
   | _ -> s |> Result.ok
 ;;
