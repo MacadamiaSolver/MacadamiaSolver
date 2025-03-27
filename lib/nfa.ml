@@ -321,32 +321,26 @@ let remove_unreachable nfa =
 ;;
 
 let update_final_states_nfa nfa =
-  let reversed_transitions = nfa.transitions |> Graph.reverse in
-  let final =
-    let visited = Array.make (length nfa) false in
-    let rec bfs reachable = function
-      | [] -> reachable
-      | q :: tl ->
-        if visited.(q)
-        then bfs reachable tl
-        else (
-          visited.(q) <- true;
-          let reachable = Set.add reachable q in
-          let delta =
-            Array.get reversed_transitions q
-            |> List.filter (fun (label, _) -> Label.is_zero label)
-          in
-          let qs = (delta |> List.map snd) @ tl in
-          bfs reachable qs)
+  match Set.find ~f:(Fun.const true) nfa.start with
+  | Some start ->
+    let rec helper front transitions =
+      if front = []
+      then transitions
+      else (
+        let next =
+          front
+          |> List.concat_map (fun (lbl, state) ->
+            transitions.(state)
+            |> List.filter_map (fun (lbl', state) ->
+              (* TODO(timafrolov): is Label.equal what is wanted here? *)
+              if Label.equal lbl lbl' then Some (lbl, state) else None))
+        in
+        Array.set transitions start (List.append next transitions.(start));
+        helper next transitions)
     in
-    bfs Set.empty (nfa.final |> Set.to_list)
-  in
-  { transitions = nfa.transitions
-  ; start = nfa.start
-  ; final
-  ; deg = nfa.deg
-  ; is_dfa = nfa.is_dfa
-  }
+    let front = nfa.start |> Set.to_list |> List.concat_map (Array.get nfa.transitions) in
+    { nfa with transitions = helper front (Array.copy nfa.transitions) }
+  | None -> nfa
 ;;
 
 let create_nfa
