@@ -13,13 +13,6 @@ let return = Result.ok
 
 let rec term s = function
   | Smtlib.Apply (f, _, ts) ->
-    let _top2 ast =
-      let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
-      let* t1 = t1 |> term s in
-      let* t2 = List.nth_opt ts 1 |> Option.to_result ~none:"expected an argument" in
-      let* t2 = t2 |> term s in
-      ast t1 t2 |> return
-    in
     let tiop ast =
       let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* t1 = t1 |> term s in
