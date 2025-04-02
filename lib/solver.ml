@@ -535,7 +535,7 @@ let log2 n =
   helper (-1) n
 ;;
 
-let pow2 n = List.init n (Fun.const 2) |> List.fold_left ( * ) 1
+let pow2 n = Seq.init n (Fun.const 2) |> Seq.fold_left ( * ) 1
 
 let gen_list_n n =
   let rec helper acc = function
@@ -673,16 +673,16 @@ let nfa_for_exponent s var newvar chrob =
     nfa)
 ;;
 
-let proof_semenov formula =
+let proof_semenov_aux good_nfa project_nfa formula =
   let* nfa, vars = eval !s formula in
-  let free_vars = formula |> collect_free |> Set.to_list in
+  let free_vars = formula |> collect_free in
   let vars =
     vars
     |> Map.filter_keys ~f:(fun a ->
       let a = if is_exp a then get_exp a else a in
-      List.exists (( = ) a) free_vars)
+      Set.mem free_vars a)
   in
-  let free_vars' = List.map (fun v -> Map.find_exn vars v) free_vars in
+  let free_vars = free_vars |> Set.to_list in
   let nfa = Nfa.minimize nfa in
   let nfa =
     Map.fold
@@ -703,88 +703,83 @@ let proof_semenov formula =
   let first x =
     x
     |> Seq.find (function
-      | Ok (Some _, _) | Error _ -> true
-      | Ok (None, _) -> false)
-    |> function
-    | Some x -> x
-    | None -> Ok (None, [])
+      | Ok (Some _) | Error _ -> true
+      | Ok None -> false)
+    |> Base.Option.value ~default:(Ok None)
   in
   let rec proof_order nfa order model =
     match order with
     | [] ->
       Debug.dump_nfa ~msg:"Final NFA: %s" Nfa.format_nfa nfa;
-      Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars), model
+      good_nfa nfa vars model
     | x :: tl ->
       Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
       (match is_exp x with
-       | false -> proof_order (* Nfa.project [ get_deg x ] *) nfa tl model
+       | false -> proof_order (project_nfa [ get_deg x ] nfa) tl model
        | true ->
-         (match List.length tl with
-          (* | 0 -> if nfa |> Nfa.project [ get_deg x ] |> Nfa.run then Some [], [] else None, [] *)
-          | _ ->
-            let deg () = Map.length s.vars in
-            let old_counter = !internal_counter in
-            let inter = internal s in
-            let next = List.nth tl 0 in
-            let temp = if is_exp next then get_deg next else inter in
-            let x' = get_exp x in
-            let zero_nfa =
-              Nfa.intersect
-                (NfaCollection.eq_const (Map.find_exn s.vars x) 1)
-                (NfaCollection.eq_const (Map.find_exn s.vars x') 0)
-              |> Nfa.truncate (deg ())
+         let deg () = Map.length s.vars in
+         let old_counter = !internal_counter in
+         let inter = internal s in
+         let next = List.nth tl 0 in
+         let temp = if is_exp next then get_deg next else inter in
+         let x' = get_exp x in
+         let zero_nfa =
+           Nfa.intersect
+             (NfaCollection.eq_const (Map.find_exn s.vars x) 1)
+             (NfaCollection.eq_const (Map.find_exn s.vars x') 0)
+           |> Nfa.truncate (deg ())
+         in
+         let zero_nfa =
+           nfa |> Nfa.intersect zero_nfa |> Nfa.project [ Map.find_exn s.vars x ]
+         in
+         Debug.printf "Zero nfa for %s: " x;
+         Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
+         (match proof_order zero_nfa tl model with
+          | Some x -> Some x
+          | None ->
+            let nfa =
+              if is_exp next
+              then nfa
+              else nfa |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
             in
-            let zero_nfa =
-              nfa |> Nfa.intersect zero_nfa |> Nfa.project [ Map.find_exn s.vars x ]
+            let t =
+              Nfa.get_chrobaks_sub_nfas
+                nfa
+                ~res:(get_deg x)
+                ~temp
+                ~vars:(free_vars |> List.map (fun v -> Map.find_exn vars v))
             in
-            Debug.printf "Zero nfa for %s: " x;
-            Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
-            (match proof_order zero_nfa tl model with
-             | Some x, model -> Some x, model
-             | None, _ ->
-               let nfa =
-                 if is_exp next
-                 then nfa
-                 else nfa |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
-               in
-               let t =
-                 Nfa.get_chrobaks_sub_nfas nfa ~res:(get_deg x) ~temp ~vars:free_vars'
-               in
-               let result =
-                 t
-                 |> List.to_seq
-                 |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
-                   let a =
-                     (match is_exp next with
-                      | false -> nfa_for_exponent s (Map.find_exn s.vars x') inter chrobak
-                      | true ->
-                        let y = get_exp next in
-                        Debug.dump_nfa
-                          ~msg:"close to nfa_for_exponent2 - intersection nfa: %s"
-                          Nfa.format_nfa
-                          nfa;
-                        nfa_for_exponent2
-                          s
-                          (Map.find_exn s.vars x')
-                          (Map.find_exn s.vars y)
-                          chrobak)
-                     |> List.map (Nfa.intersect nfa)
-                     |> List.map (fun nfa -> nfa, model_part)
-                   in
-                   a |> List.to_seq)
-                 |> Seq.map (fun (nfa, model_part) ->
-                   Nfa.project [ get_deg x; inter ] nfa, model_part)
-                 |> Seq.map (fun (nfa, model_part) ->
-                   proof_order (Nfa.minimize nfa) tl (model_part :: model))
-                 |> Seq.find (function
-                   | Some _, _ -> true
-                   | _ -> false)
-                 |> function
-                 | Some (Some x, model) -> Some x, model
-                 | _ -> None, []
-               in
-               internal_counter := old_counter;
-               result)))
+            let result =
+              t
+              |> List.to_seq
+              |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
+                let a =
+                  (match is_exp next with
+                   | false -> nfa_for_exponent s (Map.find_exn s.vars x') inter chrobak
+                   | true ->
+                     let y = get_exp next in
+                     Debug.dump_nfa
+                       ~msg:"close to nfa_for_exponent2 - intersection nfa: %s"
+                       Nfa.format_nfa
+                       nfa;
+                     nfa_for_exponent2
+                       s
+                       (Map.find_exn s.vars x')
+                       (Map.find_exn s.vars y)
+                       chrobak)
+                  |> List.map (Nfa.intersect nfa)
+                  |> List.map (fun nfa -> nfa, model_part)
+                in
+                a |> List.to_seq)
+              |> Seq.map (fun (nfa, model_part) ->
+                Nfa.project [ get_deg x; inter ] nfa, model_part)
+              |> Seq.map (fun (nfa, model_part) ->
+                proof_order (Nfa.minimize nfa) tl (model_part :: model))
+              |> Seq.find Option.is_some
+              |> Option.join
+            in
+            internal_counter := old_counter;
+            result))
   in
   orders
   |> List.to_seq
@@ -820,291 +815,309 @@ let proof_semenov formula =
        |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
        |> Nfa.run
      then proof_order nfa order []
-     else None, [])
+     else None)
     |> Result.ok)
   |> first
-  |> Result.map (function
-    | Some model, models ->
-      let rec thing = function
-        | [] -> failwith "unreachable"
-        | [ (model, _) ] -> model
-        | (model, len1) :: (model2, len2) :: tl ->
-          ( Base.List.zip_exn model model2
-            |> List.map (fun (x, y) ->
-              Debug.printfln "x=%d,y=%d,len1=%d,len2=%d" x y len1 len2;
-              (y * pow2 len1) + x)
-          , len1 + len2 )
-          :: tl
-          |> thing
-      in
-      thing (model :: List.map Option.get models)
-      |> List.mapi (fun i v -> List.nth free_vars i, v)
-      |> Map.of_alist_exn
-      |> Option.some
-    | None, _ -> None)
 ;;
 
-(* let%expect_test "Disproof 2**x equals to 0" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 0|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let proof_semenov formula =
+  proof_semenov_aux
+    (fun nfa _ _ ->
+       match nfa |> Nfa.run with
+       | true -> Some ()
+       | false -> None)
+    Nfa.project
+    formula
+  |> Result.map Option.is_some
+;;
 
-(* let%expect_test "Proof 2**x equals to 1 if x = 0" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 1|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let get_model_semenov formula =
+  proof_semenov_aux
+    (fun nfa vars model ->
+       match Nfa.any_path nfa (Map.data vars) with
+       | Some path -> Some (path, model, vars |> Map.keys)
+       | None -> None)
+    (fun _ nfa -> nfa)
+    formula
+  |> Result.map
+       (Option.map (function model, models, free_vars ->
+            let rec thing (model1, len1) = function
+              | [] -> model1
+              | (model2, len2) :: tl ->
+                thing
+                  ( Base.List.zip_exn model1 model2
+                    |> List.map (fun (x, y) ->
+                      Debug.printfln "x=%d,y=%d,len1=%d,len2=%d" x y len1 len2;
+                      (y * pow2 len1) + x)
+                  , len1 + len2 )
+                  tl
+            in
+            thing model (List.map Option.get models)
+            |> List.mapi (fun i v -> List.nth free_vars i, v)
+            |> Map.of_alist_exn))
+;;
 
-(* let%expect_test "Disproof 2**x + 2**y could be less than 2" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x + 2**y < 2|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x equals to 0" =
+  Format.printf
+    "%b"
+    ({|2**x = 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Proof 2**x + 2**y could be less than 3" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x + 2**y < 3|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x equals to 1 if x = 0" =
+  Format.printf
+    "%b"
+    ({|2**x = 1|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x equals to 2**x" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**x|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x + 2**y could be less than 2" =
+  Format.printf
+    "%b"
+    ({|2**x + 2**y < 2|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Proof 2**x equals to 2**y" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**y|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x + 2**y could be less than 3" =
+  Format.printf
+    "%b"
+    ({|2**x + 2**y < 3|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Disproof 2**x equals to x" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = x|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x equals to 2**x" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**x|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x equals to x + 1 with x = 1" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = x + 1|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x equals to 2**y" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x equals to x + 2 with x = 2" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = x + 2|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x equals to x" =
+  Format.printf
+    "%b"
+    ({|2**x = x|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Disproof 2**x equals to x + 3" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = x + 3|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x equals to x + 1 with x = 1" =
+  Format.printf
+    "%b"
+    ({|2**x = x + 1|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x can be equal to 2**y + 1" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**y + 1|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x equals to x + 2 with x = 2" =
+  Format.printf
+    "%b"
+    ({|2**x = x + 2|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x can be equal to 2**y + 2" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**y + 2|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x equals to x + 3" =
+  Format.printf
+    "%b"
+    ({|2**x = x + 3|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Disproof 2**x can be equal to 2**y + 5" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**y + 5|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x can be equal to 2**y + 1" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 1|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x = 2**y + 2**z + 7|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x can be equal to 2**y + 2" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 2|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof exists even 2**x" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|even(2**x)|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x can be equal to 2**y + 5" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 5|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Proof exists odd (not even) 2**x" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|~even(2**x)|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" =
+  Format.printf
+    "%b"
+    ({|2**x = 2**y + 2**z + 7|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof not exists odd 2**x having x > 0" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|~even(2**x) & x > 0|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Proof exists even 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof exists even 2**x + 1" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|even(2**x + 1)|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof exists odd (not even) 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|~even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Proof not exists even 2**x + 1 for x > 0" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|even(2**x + 1) & x > 0|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Proof not exists odd 2**x having x > 0" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|~even(2**x) & x > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Proof exists an even 2**x" = *)
-(*   s := default_s (); *)
-(*   {|Ey x = 2y|} *)
-(*   |> Parser.parse_formula *)
-(*   |> Result.get_ok *)
-(*   |> pred "even" [ "x" ] *)
-(*   |> Result.get_ok; *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|even(2**x)|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   s := default_s (); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof exists even 2**x + 1" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x + 1)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof not exists even 2**x + 1 for x > 0" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x + 1) & x > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
+;;
+
+let%expect_test "Proof exists an even 2**x" =
+  s := default_s ();
+  {|Ey x = 2y|}
+  |> Parser.parse_formula
+  |> Result.get_ok
+  |> pred "even" [ "x" ]
+  |> Result.get_ok;
+  Format.printf
+    "%b"
+    ({|even(2**x)|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| true |}]
+;;
 
 (* let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z" *)
 (*   = *)

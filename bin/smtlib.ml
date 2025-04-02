@@ -132,7 +132,7 @@ let run { asserts; vars; logic; _ } =
   match asserts with
   | h :: tl ->
     (match logic with
-     (* | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok *)
+     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok
      | _ ->
        List.fold_left Ast.mand h tl
        |> (fun f -> Ast.exists vars f)
@@ -147,7 +147,7 @@ let run_model { asserts; logic; _ } =
     let formula = List.fold_left Ast.mand h tl in
     Format.printf "Formula AST: %a\n%!" Ast.pp_formula formula;
     (match logic with
-     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.proof_semenov |> Result.get_ok
+     | "ALL" -> List.fold_left Ast.mand h tl |> Solver.get_model_semenov |> Result.get_ok
      | _ -> List.fold_left Ast.mand h tl |> Solver.get_model |> Result.get_ok)
   | [] -> None
 ;;

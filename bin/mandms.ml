@@ -24,6 +24,11 @@ let exec line = function
   | Ast.EvalSemenov f ->
     let res = Solver.proof_semenov f in
     (match res with
+     | Ok res -> Format.printf "Result: %b\n\n%!" res
+     | Error msg -> Format.printf "Error: %s\n\n%!" msg)
+  | Ast.EvalSemenovm f ->
+    let res = Solver.get_model_semenov f in
+    (match res with
      | Ok res ->
        (match res with
         | Some model ->
@@ -31,11 +36,6 @@ let exec line = function
           Format.printf "\n%!"
         | None -> Format.printf "No model\n\n%!")
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
-    (* failwith "ahaha" *)
-    (* let res = Solver.proof_semenov f in
-    (match res with
-     | Ok res -> Format.printf "Result: %b\n\n%!" res
-     | Error msg -> Format.printf "Error: %s\n\n%!" msg) *)
   | Ast.Dump f ->
     (match Solver.dump f with
      | Ok s ->

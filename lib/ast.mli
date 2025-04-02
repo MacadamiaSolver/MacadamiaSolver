@@ -37,6 +37,7 @@ type stmt =
   | Eval of formula
   | Evalm of formula
   | EvalSemenov of formula
+  | EvalSemenovm of formula
   | Dump of formula
   | Parse of formula
   | List
