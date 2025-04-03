@@ -7,23 +7,29 @@ let add ~lhs ~rhs ~sum =
     ~transitions:
       [ 0, 0b000, 0
       ; 0, 0b101, 0
-      ; 0, 0b110, 0
-      ; 0, 0b011, 1
+      ; 0, 0b001, 1
+      ; 0, 0b011, 0
       ; 1, 0b111, 1
       ; 1, 0b010, 1
-      ; 1, 0b001, 1
-      ; 1, 0b100, 0
+      ; 1, 0b100, 1
+      ; 1, 0b110, 0
+      ; 2, 0b000, 0
+      ; 2, 0b011, 0
+      ; 2, 0b101, 0
+      ; 2, 0b100, 1
+      ; 2, 0b010, 1
+      ; 2, 0b111, 1
       ]
-    ~start:[ 0 ]
+    ~start:[ 2 ]
     ~final:[ 0 ]
-    ~vars:[ sum; rhs; lhs ]
+    ~vars:[ lhs; rhs; sum ]
     ~deg:((max lhs rhs |> max sum) + 1)
 ;;
 
 let eq lhs rhs =
   Nfa.create_nfa
-    ~transitions:[ 0, 0b00, 0; 0, 0b11, 0 ]
-    ~start:[ 0 ]
+    ~transitions:[ 0, 0b00, 0; 0, 0b11, 0; 1, 0b00, 0; 1, 0b11, 0 ]
+    ~start:[ 1 ]
     ~final:[ 0 ]
     ~vars:[ lhs; rhs ]
     ~deg:(max lhs rhs + 1)
@@ -34,11 +40,11 @@ let eq_const var (n : int) =
   let max = Bitv.length vec in
   let transitions =
     Bitv.foldi_right
-      (fun i bit acc -> (i, (if bit then 1 else 0), i + 1) :: acc)
+      (fun i bit acc -> (i + 1, (if bit then 1 else 0), i) :: acc)
       vec
-      [ max, 0, max ]
+      [ max + 1, 0, max; max, 0, max ]
   in
-  Nfa.create_nfa ~start:[ 0 ] ~final:[ max ] ~transitions ~vars:[ var ] ~deg:(var + 1)
+  Nfa.create_nfa ~start:[ max + 1 ] ~final:[ 0 ] ~transitions ~vars:[ var ] ~deg:(var + 1)
 ;;
 
 let n () =

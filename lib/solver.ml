@@ -74,9 +74,15 @@ let teval s ast =
       let lv, la = teval l in
       let rv, ra = teval r in
       let res = internal s in
-      ( res
-      , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res |> Nfa.intersect la |> Nfa.intersect ra
-      )
+      let nfa =
+        NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res |> Nfa.intersect la |> Nfa.intersect ra
+      in
+      let vars = ("res", res) :: ("rv", rv) :: ("lv", lv) :: Map.to_alist s.vars in
+      Debug.printfln "Add:";
+      Debug.dump_nfa ~msg:"  Left: %s" ~vars Nfa.format_nfa la;
+      Debug.dump_nfa ~msg:"  Right: %s" ~vars Nfa.format_nfa ra;
+      Debug.dump_nfa ~msg:"  Intersection: %s" ~vars Nfa.format_nfa nfa;
+      res, nfa
     | Ast.Mul (a, b) ->
       let rec teval_mul a b =
         match a with
@@ -130,11 +136,16 @@ let eval s ast =
         let lv, la = teval s l in
         let rv, ra = teval s r in
         reset_internals ();
-        NfaCollection.eq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
+        let nfa = NfaCollection.eq lv rv |> Nfa.intersect la |> Nfa.intersect ra in
+        Debug.printfln "Eq:";
+        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
+        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
+        Debug.dump_nfa
+          ~msg:"  Intersection: %s"
+          ~vars:(Map.to_alist s.vars)
+          Nfa.format_nfa
+          nfa;
+        nfa |> Nfa.truncate (deg ()) |> return
       | Ast.Leq (l, r) ->
         let lv, la = teval s l in
         let rv, ra = teval s r in
@@ -533,12 +544,6 @@ let log2 n =
     | n -> helper (acc + 1) (n / 2)
   in
   helper (-1) n
-;;
-
-let _pow2 n =
-  match n with
-  | 0 -> 1
-  | n -> List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
 ;;
 
 let gen_list_n n =
