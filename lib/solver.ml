@@ -1119,36 +1119,36 @@ let%expect_test "Proof exists an even 2**x" =
   [%expect {| true |}]
 ;;
 
-(* let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z" *)
-(*   = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z"
+  =
+  Format.printf
+    "%b"
+    ({|2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
 
-(* let%expect_test "Proof 2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| true |}] *)
-(* ;; *)
+let%expect_test "Proof 2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z" =
+  Format.printf
+    "%b"
+    ({|2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| true |}]
+;;
 
-(* let%expect_test "Disproof 2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z" = *)
-(*   Format.printf *)
-(*     "%b" *)
-(*     ({|2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z|} *)
-(*      |> Parser.parse_formula *)
-(*      |> Result.get_ok *)
-(*      |> proof_semenov *)
-(*      |> Result.get_ok); *)
-(*   [%expect {| false |}] *)
-(* ;; *)
+let%expect_test "Disproof 2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z" =
+  Format.printf
+    "%b"
+    ({|2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  [%expect {| false |}]
+;;
