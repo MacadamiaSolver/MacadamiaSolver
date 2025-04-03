@@ -546,12 +546,6 @@ let log2 n =
   helper (-1) n
 ;;
 
-let _pow2 n =
-  match n with
-  | 0 -> 1
-  | n -> List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
-;;
-
 let gen_list_n n =
   let rec helper acc = function
     | 0 -> [ 0 ]

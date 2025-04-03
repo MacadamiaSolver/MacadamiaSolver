@@ -1,4 +1,5 @@
 open Format
+open Utils
 module Set = Base.Set.Poly
 module Map = Base.Map.Poly
 module Sequence = Base.Sequence
@@ -323,7 +324,7 @@ let remove_unreachable nfa =
 let update_final_states_nfa nfa =
   match Set.find ~f:(Fun.const true) nfa.start with
   | Some start ->
-    let rec helper front transitions =
+    let rec helper front visited transitions =
       if front = []
       then transitions
       else (
@@ -333,13 +334,16 @@ let update_final_states_nfa nfa =
             transitions.(state)
             |> List.filter_map (fun (lbl', state) ->
               (* TODO(timafrolov): is Label.equal what is wanted here? *)
-              if Label.equal lbl lbl' then Some (lbl, state) else None))
+              if (not (Set.mem visited state)) && Label.equal lbl lbl'
+              then Some (lbl, state)
+              else None))
         in
+        let visited = Set.union visited (front |> List.map snd |> Set.of_list) in
         Array.set transitions start (List.append next transitions.(start));
-        helper next transitions)
+        helper next visited transitions)
     in
     let front = nfa.start |> Set.to_list |> List.concat_map (Array.get nfa.transitions) in
-    { nfa with transitions = helper front (Array.copy nfa.transitions) }
+    { nfa with transitions = helper front Set.empty (Array.copy nfa.transitions) }
   | None -> nfa
 ;;
 
@@ -436,13 +440,17 @@ let any_path nfa vars =
     nfa.start |> Set.to_list |> List.find_map dfs
   in
   match p with
-  | Some (p, _) ->
+  | Some (sign :: p, _) ->
     let length = List.length p in
     List.map
       (fun var ->
-         Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var) |> Bitv.to_int_s)
+         let sign = Bitv.get (fst sign) var in
+         (if sign then -pow2 length else 0)
+         + (Bitv.init length (fun i -> Bitv.get (List.nth p (length - 1 - i) |> fst) var)
+            |> Bitv.to_int_s))
       vars
     |> Option.some
+  | Some ([], _) -> Some []
   | None -> Option.none
 ;;
 
@@ -752,20 +760,36 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let pow_lbl = Bitv.init 32 (( = ) temp), mask in
   let one_lbl = Bitv.init 32 (Fun.const true), mask in
   let reversed_transitions = nfa.transitions |> Graph.reverse in
+  let start =
+    nfa.start
+    |> Set.to_list
+    |> List.concat_map (fun state ->
+      nfa.transitions.(state)
+      |> List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl)
+      |> List.map snd)
+    |> Set.of_list
+  in
   let end_transitions =
-    reversed_transitions
+    nfa.transitions
+    |> Array.mapi (fun src list ->
+      if Set.mem start src
+      then list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
+      else [])
+    (* reversed_transitions
     |> Array.mapi (fun src list ->
       if Set.mem nfa.final src
       then list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
-      else [])
+      else []) *)
   in
   let pre_final =
     end_transitions |> Array.to_list |> List.concat |> List.map snd |> Set.of_list
   in
   let zero_transitions, states =
     let all_zero_transitions =
-      reversed_transitions
+      nfa.transitions
       |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+      (* reversed_transitions
+      |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl)) *)
     in
     let rec helper acc visited cur =
       if Set.is_empty cur
@@ -789,23 +813,23 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
     in
     helper (Array.map (Fun.const []) all_zero_transitions) Set.empty pre_final
   in
-  let start =
+  let final =
     states
     |> Set.filter ~f:(fun i ->
-      reversed_transitions.(i)
+      nfa.transitions.(i)
       |> List.filter (fun (lbl, _) -> Label.equal lbl pow_lbl)
       |> List.is_empty
       |> not)
   in
   let start_final =
-    nfa.final
+    start
     |> Set.filter ~f:(fun i ->
-      reversed_transitions.(i)
+      nfa.transitions.(i)
       |> List.filter (fun (lbl, _) -> Label.equal lbl one_lbl)
       |> List.is_empty
       |> not)
   in
-  let start = Set.union start start_final in
+  let final = Set.union final start_final in
   let transitions =
     Graph.union_list [ end_transitions; zero_transitions ] |> Graph.reverse
   in
