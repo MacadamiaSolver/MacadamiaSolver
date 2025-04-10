@@ -286,6 +286,7 @@ type command =
   | GetUnsatCore
   | GetValue of term list
   | GetAssignment
+  | GetModel
   (*| GetOption of keyword*)
   (*| GetInfo of info flag *)
   | Exit
@@ -315,6 +316,7 @@ let command =
     | "get-proof" -> return getproof
     | "get-unsat-core" -> return getunsatcore
     | "get-assignment" -> return getassignment
+    | "get-model" -> return getmodel
     | "get-value" -> many1 (term <* whitespace) >>| getvalue
     | "exit" -> return exit
     | _ -> fail "unknown command"

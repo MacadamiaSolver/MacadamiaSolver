@@ -419,37 +419,42 @@ let create_dfa
 
 let run nfa = Set.are_disjoint nfa.start nfa.final |> not
 
+type path = Path of (int list * int)
+
 let any_path nfa vars =
   let transitions = nfa.transitions in
   let p =
     let visited = Array.make (length nfa) false in
-    let rec dfs q =
+    let rec dfs len q =
       if visited.(q)
       then None
       else if Set.mem nfa.final q
-      then Option.some ([], q)
+      then Some ([], q, len)
       else (
         visited.(q) <- true;
         let delta = Array.get transitions q in
         let qs = delta |> List.map snd in
-        match List.find_map (fun q -> dfs q) qs with
-        | Some (path, q') ->
-          Some ((List.find (fun (_, q'') -> q' = q'') delta |> fst) :: path, q)
+        match List.find_map (fun q -> dfs (len + 1) q) qs with
+        | Some (path, q', len) ->
+          Some ((List.find (fun (_, q'') -> q' = q'') delta |> fst) :: path, q, len)
         | None ->
           visited.(q) <- false;
           None)
     in
-    nfa.start |> Set.to_list |> List.find_map dfs
+    nfa.start |> Set.to_list |> List.find_map (dfs 0)
   in
   match p with
-  | Some (p, _) ->
+  | Some (p, _, len) ->
     let length = List.length p in
-    List.map
-      (fun var ->
-         Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var) |> Bitv.to_int_s)
-      vars
-    |> Option.some
-  | None -> Option.none
+    Some
+      (Path
+         ( List.map
+             (fun var ->
+                Bitv.init length (fun i -> Bitv.get (List.nth p i |> fst) var)
+                |> Bitv.to_int_s)
+             vars
+         , len ))
+  | None -> None
 ;;
 
 let intersect nfa1 nfa2 =
@@ -750,7 +755,10 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
   r2 @ r1
 ;;
 
-let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
+let get_exponent_sub_nfa ?(vars : int list option) (nfa : t) ~(res : deg) ~(temp : deg)
+  : t * path
+  =
+  ignore vars;
   Debug.dump_nfa ~msg:"Exponent sub_nfa input: %s" format_nfa nfa;
   let mask = Bitv.init 32 (fun x -> x = res || x = temp) in
   let zero_lbl = Bitv.init 32 (Fun.const false), mask in
@@ -758,10 +766,59 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let pow_lbl = Bitv.init 32 (( = ) temp), mask in
   let one_lbl = Bitv.init 32 (Fun.const true), mask in
   let reversed_transitions = nfa.transitions |> Graph.reverse in
+  let final, thing =
+    let final_transitions =
+      reversed_transitions
+      |> Array.map (List.filter (fun (lbl, _) -> Label.equal lbl zero_lbl))
+    in
+    let rec helper acc visited cur =
+      let next_transitions =
+        final_transitions
+        |> Base.Array.mapi ~f:(fun i x -> if Map.mem cur i then x else [])
+      in
+      if Array.for_all List.is_empty next_transitions
+      then cur |> Map.keys |> Set.of_list, cur
+      else (
+        let visited = Map.merge_disjoint_exn visited cur in
+        let next =
+          cur
+          |> Map.to_sequence
+          |> Sequence.concat_map ~f:(fun ((i, Path (path, len)) as node) ->
+            match next_transitions.(i) with
+            | [] -> Base.Sequence.singleton node
+            | t ->
+              t
+              |> Base.Sequence.of_list
+              |> Base.Sequence.map ~f:(fun ((lbl, _), state) ->
+                ( state
+                , match vars with
+                  | None -> Path ([], 0)
+                  | Some vars ->
+                    Path
+                      ( Base.List.zip_exn (vars |> List.map (Bitv.get lbl)) path
+                        |> List.map (fun (fst, snd) -> (2 * snd) + if fst then 1 else 0)
+                      , len + 1 ) )))
+          |> Map.of_sequence_exn
+        in
+        helper acc visited next)
+    in
+    helper
+      Set.empty
+      Map.empty
+      (nfa.final
+       |> Set.to_sequence
+       |> Base.Sequence.map ~f:(fun x ->
+         ( x
+         , Path
+             (match vars with
+              | None -> [], 0
+              | Some vars -> List.init (List.length vars) (Fun.const 0), 0) ))
+       |> Map.of_sequence_exn)
+  in
   let end_transitions =
     reversed_transitions
     |> Array.mapi (fun src list ->
-      if Set.mem nfa.final src
+      if Set.mem final src
       then list |> List.filter (fun (lbl, _) -> Label.equal lbl res_lbl)
       else [])
   in
@@ -804,7 +861,7 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
       |> not)
   in
   let start_final =
-    nfa.final
+    final
     |> Set.filter ~f:(fun i ->
       reversed_transitions.(i)
       |> List.filter (fun (lbl, _) -> Label.equal lbl one_lbl)
@@ -815,9 +872,9 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let transitions =
     Graph.union_list [ end_transitions; zero_transitions ] |> Graph.reverse
   in
-  let result = { transitions; final = nfa.final; start; deg = nfa.deg; is_dfa = false } in
+  let result = { transitions; final; start; deg = nfa.deg; is_dfa = false } in
   Debug.dump_nfa ~msg:"Exponent sub_nfa output: %s" format_nfa result;
-  result
+  result, failwith "Do not know which path to take"
 ;;
 
 let chrobak (nfa : t) =
@@ -839,10 +896,10 @@ let chrobak (nfa : t) =
   result
 ;;
 
-let get_chrobaks_sub_nfas nfa ~res ~temp =
+let get_chrobaks_sub_nfas nfa ~res ~temp ~vars =
   let mask = Bitv.init 32 (( = ) temp) in
   let temp_lbl = mask, mask in
-  let exp_nfa = get_exponent_sub_nfa nfa ~res ~temp in
+  let exp_nfa, path = get_exponent_sub_nfa nfa ~res ~temp in
   exp_nfa.start
   |> Set.to_list
   |> List.map (fun mid ->
@@ -853,5 +910,6 @@ let get_chrobaks_sub_nfas nfa ~res ~temp =
           |> Array.map
                (List.filter (fun (lbl, fin) -> fin <> mid || Label.equal lbl temp_lbl))
       }
-    , chrobak { exp_nfa with start = Set.singleton mid } ))
+    , chrobak { exp_nfa with start = Set.singleton mid }
+    , any_path { nfa with start = Set.singleton mid } vars ))
 ;;

@@ -24,8 +24,18 @@ let exec line = function
   | Ast.EvalSemenov f ->
     let res = Solver.proof_semenov f in
     (match res with
-     | Ok res -> Format.printf "Result: %b\n\n%!" res
+     | Ok res ->
+       (match res with
+        | Some model ->
+          Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+          Format.printf "\n%!"
+        | None -> Format.printf "No model\n\n%!")
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
+    (* failwith "ahaha" *)
+    (* let res = Solver.proof_semenov f in
+    (match res with
+     | Ok res -> Format.printf "Result: %b\n\n%!" res
+     | Error msg -> Format.printf "Error: %s\n\n%!" msg) *)
   | Ast.Dump f ->
     (match Solver.dump f with
      | Ok s ->
