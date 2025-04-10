@@ -29,38 +29,47 @@ let is_idchar = function
   | _ -> false
 ;;
 
+let token p = whitespace *> p <* whitespace
+
 let ident =
-  let* a = satisfy is_idschar in
-  let* b = take_while is_idchar in
-  String.make 1 a ^ b |> return
+  let ident' =
+    let* a = satisfy is_idschar in
+    let* b = take_while is_idchar in
+    String.make 1 a ^ b |> return
+  in
+  token ident' <?> "expected identifier satisfying [a-z_0-9][a-z_0-9]*"
 ;;
 
-let var = ident >>| Ast.var
-let integer = take_while1 is_digit >>| int_of_string
-let parens p = char '(' *> whitespace *> p <* whitespace <* char ')'
+let var = token ident >>| Ast.var
+
+let integer =
+  token (take_while1 is_digit) >>| int_of_string <?> "expected constant integer value"
+;;
+
+let parens p = token (char '(') *> p <* token (char ')')
 
 let chainl1 e op =
   let rec go acc = lift2 (fun f x -> f acc x) op e >>= go <|> return acc in
   e >>= go
 ;;
 
-let un_op op ast p = string op *> whitespace *> p >>| ast
+let un_op op ast p = token (string op) *> p >>| ast
 
 let bin_op op ast p =
-  let op = whitespace *> string op *> whitespace *> return ast in
+  let op = token (string op) *> return ast in
   chainl1 p op
 ;;
 
 let opt q p = q p <|> p
 
-let pow term =
-  let* c = integer <* whitespace in
+let mul term =
+  let* c = integer in
   let* body = term in
   Ast.mul c body |> return
 ;;
 
-let mul term =
-  let* c = integer <* whitespace <* string "**" <* whitespace in
+let pow term =
+  let* c = integer <* token (string "**") in
   let* body = term in
   Ast.pow c body |> return
 ;;
@@ -71,14 +80,14 @@ let term =
 ;;
 
 let pred =
-  let* name = ident <* whitespace in
-  let* params = whitespace *> term |> many <* whitespace in
+  let* name = ident in
+  let* params = term |> many in
   Ast.pred name params |> return
 ;;
 
 let pred_op op ast =
   let* a = term in
-  let* _ = whitespace *> string op <* whitespace in
+  let* _ = token (string op) in
   let* b = term in
   ast a b |> return
 ;;
@@ -91,13 +100,13 @@ let aformula =
   <|> pred_op "<=" Ast.leq
   <|> pred_op ">=" Ast.geq
   <|> pred
-  <?> "Expected aformula"
+  <?> "expected atomic formula"
 ;;
 
 let quantifier sym ast formula =
   let* _ = char sym in
   let* var = ident in
-  let* formula = whitespace *> formula in
+  let* formula = formula in
   ast [ var ] formula |> return
 ;;
 
@@ -113,52 +122,30 @@ let formula =
       |> bin_op "<->" Ast.miff
     in
     quantifier 'A' Ast.any formula <|> quantifier 'E' Ast.exists formula <|> formula1)
-;;
-
-let kw kw ast = string kw *> whitespace *> return ast
-
-let kw1 kw ast p1 =
-  let* _ = string kw <* whitespace1 in
-  let* p1 = p1 in
-  ast p1 |> return
-;;
-
-let kw2 kw ast p1 p2 =
-  let* _ = string kw <* whitespace1 in
-  let* p1 = p1 in
-  ast p1 p2
-;;
-
-let kw3 kw ast p1 p2 p3 =
-  let* _ = string kw <* whitespace1 in
-  let* p1 = p1 in
-  let* p2 = p2 in
-  let* p3 = p3 in
-  ast p1 p2 p3 |> return
-;;
-
-let def =
-  let* name = string "let" *> whitespace *> ident <* whitespace in
-  let* params = many (whitespace *> ident) in
-  let* body = whitespace *> char '=' *> whitespace *> formula in
-  Ast.def name params body |> return
+  <?> "expected formula"
 ;;
 
 let stmt =
-  kw1 "eval" Ast.eval formula
-  <|> kw1 "evalm" Ast.evalm formula
-  <|> kw1 "evalsemenov" Ast.evalsemenov formula
-  <|> kw3
-        "let"
-        Ast.def
-        (ident <* whitespace)
-        (many (whitespace *> ident))
-        (whitespace *> char '=' *> whitespace *> formula)
-  <|> kw1 "dump" Ast.dump formula
-  <|> kw1 "parse" Ast.parse formula
-  <|> kw "list" Ast.list
-  <|> kw "help" Ast.help
-  <?> "Unknown statement"
+  let* kw = ident in
+  match kw with
+  | "eval" -> lift Ast.eval formula
+  | "evalm" -> lift Ast.evalm formula
+  | "evalsemenov" -> lift Ast.evalsemenov formula
+  | "evalsemenovm" -> lift Ast.evalsemenov formula
+  | "let" -> lift3 Ast.def ident (many ident) (token (char '=') *> formula)
+  | "letr" ->
+    lift2
+      Ast.defr
+      ident
+      (token (char '=')
+       *> (take_while (fun c -> is_whitespace c |> not)
+           >>| Regex.of_string
+           >>| Result.get_ok))
+  | "dump" -> lift Ast.dump formula
+  | "parse" -> lift Ast.parse formula
+  | "list" -> return Ast.list
+  | "help" -> return Ast.help
+  | _ -> Format.sprintf "Unknown keyword %s" kw |> fail
 ;;
 
 let parse_formula str = parse_string ~consume:Prefix formula str
