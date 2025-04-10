@@ -3,6 +3,7 @@ module Map = Base.Map.Poly
 
 type t =
   { preds : (string * string list * Ast.formula * Nfa.t * (string, int) Map.t) list
+  ; rpreds : (string * Regex.t * Nfa.t) list
   ; vars : (string, int) Map.t
   ; total : int
   ; progress : int
@@ -11,7 +12,7 @@ type t =
 let ( let* ) = Result.bind
 let return = Result.ok
 let throw_if cond a = if cond then Result.error a else Result.ok ()
-let default_s () = { preds = []; vars = Map.empty; total = 0; progress = 0 }
+let default_s () = { preds = []; rpreds = []; vars = Map.empty; total = 0; progress = 0 }
 let s = ref (default_s ())
 
 let collect f =
@@ -117,7 +118,7 @@ let eval s ast =
   let vars =
     collect ast |> Set.to_list |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn
   in
-  let s = { preds = s.preds; vars; total = 0; progress = 0 } in
+  let s = { preds = s.preds; rpreds = s.rpreds; vars; total = 0; progress = 0 } in
   let deg () = Map.length s.vars in
   let var_exn v = Map.find_exn s.vars v in
   let reset_internals () = internal_counter := Map.length s.vars in
@@ -195,21 +196,35 @@ let eval s ast =
         let x = List.map var_exn x in
         nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> Nfa.minimize |> return
       | Ast.Pred (name, args) ->
-        let* _, pred_params, _, pred_nfa, pred_vars =
-          List.find_opt (fun (pred_name, _, _, _, _) -> pred_name = name) s.preds
-          |> Option.to_result ~none:(Format.sprintf "Unknown predicate: %s" name)
-        in
-        let args = List.map (teval s) args in
-        let map =
-          List.mapi
-            (fun i (v, _) -> v, List.nth pred_params i |> Map.find_exn pred_vars)
-            args
-          |> Map.of_alist_exn
-        in
-        reset_internals ();
-        let nfa = pred_nfa |> Nfa.reenumerate map in
-        let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
-        nfa |> Nfa.truncate (deg ()) |> return
+        (match
+           List.find_opt (fun (pred_name, _, _, _, _) -> pred_name = name) s.preds
+         with
+         | Some pred ->
+           let _, pred_params, _, pred_nfa, pred_vars = pred in
+           let args = List.map (teval s) args in
+           let map =
+             List.mapi
+               (fun i (v, _) -> v, List.nth pred_params i |> Map.find_exn pred_vars)
+               args
+             |> Map.of_alist_exn
+           in
+           reset_internals ();
+           let nfa = pred_nfa |> Nfa.reenumerate map in
+           let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
+           nfa |> Nfa.truncate (deg ()) |> return
+         | None ->
+           (match
+              List.find_opt (fun (rpred_name, _, _) -> name = rpred_name) s.rpreds
+            with
+            | Some rpred ->
+              let _, _, rpred_nfa = rpred in
+              let args = List.map (teval s) args in
+              let map = List.mapi (fun i (v, _) -> v, i) args |> Map.of_alist_exn in
+              reset_internals ();
+              let nfa = rpred_nfa |> Nfa.reenumerate map in
+              let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
+              nfa |> Nfa.truncate (deg ()) |> return
+            | None -> Result.error "Unknown predicate"))
       | _ -> failwith "unimplemented"
     in
     nfa
@@ -245,6 +260,19 @@ let pred name params f =
   let* nfa, vars = eval !s f in
   s
   := { preds = (name, params, f, nfa, vars) :: !s.preds
+     ; rpreds = !s.rpreds
+     ; total = !s.total
+     ; vars = !s.vars
+     ; progress = !s.progress
+     };
+  return ()
+;;
+
+let predr name re =
+  let nfa = Regex.to_nfa re in
+  s
+  := { preds = !s.preds
+     ; rpreds = (name, re, nfa) :: !s.rpreds
      ; total = !s.total
      ; vars = !s.vars
      ; progress = !s.progress

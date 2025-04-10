@@ -47,6 +47,10 @@ let exec line = function
     (match Solver.pred name params formula with
      | Ok () -> ()
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
+  | Ast.Defr (name, regex) ->
+    (match Solver.predr name regex with
+     | Ok () -> ()
+     | Error msg -> Format.printf "Error: %s\n\n%!" msg)
   | Ast.Parse f ->
     Format.printf "Formula AST: %a\n%!" Ast.pp_formula f;
     Format.printf "Optimized AST: %a\n\n%!" Ast.pp_formula (f |> Optimizer.optimize)

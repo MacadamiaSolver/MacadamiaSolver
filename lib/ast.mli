@@ -34,6 +34,7 @@ type formula =
 
 type stmt =
   | Def of string * varname list * formula
+  | Defr of string * Regex.t
   | Eval of formula
   | Evalm of formula
   | EvalSemenov of formula
