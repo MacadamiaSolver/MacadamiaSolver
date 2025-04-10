@@ -149,12 +149,22 @@ let eval s ast =
       | Ast.Leq (l, r) ->
         let lv, la = teval s l in
         let rv, ra = teval s r in
+        Debug.printfln "Leq:";
+        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
+        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
         reset_internals ();
-        NfaCollection.leq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
+        let nfa =
+          NfaCollection.leq lv rv
+          |> Nfa.intersect la
+          |> Nfa.intersect ra
+          |> Nfa.truncate (deg ())
+        in
+        Debug.dump_nfa
+          ~msg:"  Intersection: %s"
+          ~vars:(Map.to_alist s.vars)
+          Nfa.format_nfa
+          nfa;
+        nfa |> return
       | Ast.Geq (l, r) ->
         let lv, la = teval s l in
         let rv, ra = teval s r in

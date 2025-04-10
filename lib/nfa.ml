@@ -339,7 +339,9 @@ let update_final_states_nfa nfa =
               else None))
         in
         let visited = Set.union visited (front |> List.map snd |> Set.of_list) in
-        Array.set transitions start (List.append next transitions.(start));
+        transitions.(start)
+        <- (let t = transitions.(start) in
+            List.append (List.filter (fun x -> not (List.mem x t)) next) t);
         helper next visited transitions)
     in
     let front = nfa.start |> Set.to_list |> List.concat_map (Array.get nfa.transitions) in
@@ -415,8 +417,6 @@ let create_dfa
   }
 ;;
 
-let run nfa = Set.are_disjoint nfa.start nfa.final |> not
-
 let any_path nfa vars =
   let transitions = nfa.transitions in
   let p =
@@ -453,6 +453,8 @@ let any_path nfa vars =
   | Some ([], _) -> Some []
   | None -> Option.none
 ;;
+
+let run nfa = any_path nfa [] |> Option.is_some
 
 let intersect nfa1 nfa2 =
   let cartesian_product l1 l2 =
@@ -691,7 +693,12 @@ let to_dfa nfa =
 ;;
 
 let minimize nfa =
-  nfa |> remove_unreachable |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+  Debug.dump_nfa ~msg:"Before minimize: %s" format_nfa nfa;
+  let nfa =
+    nfa |> remove_unreachable |> to_dfa |> reverse |> to_dfa |> reverse |> to_dfa
+  in
+  Debug.dump_nfa ~msg:"After minimize: %s" format_nfa nfa;
+  nfa
 ;;
 
 let invert nfa =
@@ -759,7 +766,6 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let res_lbl = Bitv.init 32 (( = ) res), mask in
   let pow_lbl = Bitv.init 32 (( = ) temp), mask in
   let one_lbl = Bitv.init 32 (Fun.const true), mask in
-  let reversed_transitions = nfa.transitions |> Graph.reverse in
   let start =
     nfa.start
     |> Set.to_list
@@ -833,7 +839,8 @@ let get_exponent_sub_nfa (nfa : t) ~(res : deg) ~(temp : deg) : t =
   let transitions =
     Graph.union_list [ end_transitions; zero_transitions ] |> Graph.reverse
   in
-  let result = { transitions; final = nfa.final; start; deg = nfa.deg; is_dfa = false } in
+  (* TODO(timafrolov): is start correct here? *)
+  let result = { transitions; final; start; deg = nfa.deg; is_dfa = false } in
   Debug.dump_nfa ~msg:"Exponent sub_nfa output: %s" format_nfa result;
   result
 ;;

@@ -17,7 +17,14 @@ let is_digit = function
   | _ -> false
 ;;
 
-let const = take_while1 is_digit >>| int_of_string >>| Ast.const
+let integer =
+  whitespace
+  *> (char '-' *> take_while1 is_digit
+      >>| (fun x -> -int_of_string x)
+      <|> (take_while1 is_digit >>| int_of_string))
+;;
+
+let const = integer >>| Ast.const
 
 let is_idschar = function
   | 'a' .. 'z' | '_' -> true
@@ -36,7 +43,6 @@ let ident =
 ;;
 
 let var = ident >>| Ast.var
-let integer = take_while1 is_digit >>| int_of_string
 let parens p = char '(' *> whitespace *> p <* whitespace <* char ')'
 
 let chainl1 e op =

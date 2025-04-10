@@ -36,14 +36,19 @@ let eq lhs rhs =
 ;;
 
 let eq_const var (n : int) =
-  let vec = Bitv.of_int_us n |> Bitv.to_list |> Bitv.of_list in
-  let max = Bitv.length vec in
-  let transitions =
-    Bitv.foldi_right
-      (fun i bit acc -> (i + 1, (if bit then 1 else 0), i) :: acc)
-      vec
-      [ max + 1, 0, max; max, 0, max ]
+  let transitions, max =
+    let rec helper acc cnt v =
+      let d = if v mod 2 = 0 then 0 else 1 in
+      let v' = (v - d) / 2 in
+      if v' = v
+      then (cnt, d, cnt) :: acc, cnt
+      else (
+        let nxt = succ cnt in
+        helper ((nxt, d, cnt) :: acc) nxt v')
+    in
+    helper [] 0 n
   in
+  let transitions = (max + 1, (if n >= 0 then 0 else 1), max) :: transitions in
   Nfa.create_nfa ~start:[ max + 1 ] ~final:[ 0 ] ~transitions ~vars:[ var ] ~deg:(var + 1)
 ;;
 
@@ -58,16 +63,20 @@ let leq lhs rhs =
     ~transitions:
       [ 0, 0b00, 0
       ; 0, 0b11, 0
-      ; 0, 0b10, 0
-      ; 0, 0b01, 1
+      ; 0, 0b01, 0
+      ; 1, 0b10, 0
       ; 1, 0b11, 1
       ; 1, 0b00, 1
-      ; 1, 0b01, 1
-      ; 1, 0b10, 0
+      ; 1, 0b10, 1
+      ; 0, 0b01, 1
+      ; 2, 0b11, 0
+      ; 2, 0b00, 0
+      ; 2, 0b10, 0
+      ; 2, 0b10, 1
       ]
-    ~start:[ 0 ]
+    ~start:[ 2 ]
     ~final:[ 0 ]
-    ~vars:[ rhs; lhs ]
+    ~vars:[ lhs; rhs ]
     ~deg:(max lhs rhs + 1)
 ;;
 
