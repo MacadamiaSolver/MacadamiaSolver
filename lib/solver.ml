@@ -282,7 +282,7 @@ let get_model f =
   let free_vars = f |> collect_free |> Set.to_list in
   let model = Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars) in
   match model with
-  | Some (model, _) ->
+  | Some (Path (model, _)) ->
     List.mapi (fun i v -> List.nth free_vars i, v) model
     |> Map.of_alist_exn
     |> Option.some
@@ -827,13 +827,14 @@ let proof_semenov formula =
     | Some model, models ->
       let rec thing = function
         | [] -> failwith "unreachable"
-        | [ (model, _) ] -> model
-        | (model, len1) :: (model2, len2) :: tl ->
-          ( Base.List.zip_exn model model2
-            |> List.map (fun (x, y) ->
-              Debug.printfln "x=%d,y=%d,len1=%d,len2=%d" x y len1 len2;
-              (y * pow2 len1) + x)
-          , len1 + len2 )
+        | [ Nfa.Path (model, _) ] -> model
+        | Nfa.Path (model, len1) :: Nfa.Path (model2, len2) :: tl ->
+          Nfa.Path
+            ( Base.List.zip_exn model model2
+              |> List.map (fun (x, y) ->
+                Debug.printfln "x=%d,y=%d,len1=%d,len2=%d" x y len1 len2;
+                (y * pow2 len1) + x)
+            , len1 + len2 )
           :: tl
           |> thing
       in

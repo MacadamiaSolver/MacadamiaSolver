@@ -5,6 +5,7 @@ module Sequence = Base.Sequence
 type state = int
 type deg = int
 type t
+type path = Path of (int list * int)
 
 val create_nfa
   :  transitions:(state * int * state) list
@@ -23,7 +24,7 @@ val create_dfa
   -> t
 
 val run : t -> bool
-val any_path : t -> int list -> (int list * state) option
+val any_path : t -> int list -> path option
 val intersect : t -> t -> t
 val unite : t -> t -> t
 val project : int list -> t -> t
@@ -35,7 +36,6 @@ val invert : t -> t
 val format_nfa : Format.formatter -> t -> unit
 val remove_unreachable : t -> t
 val find_c_d : t -> (int, int) Map.t -> (int * int) list
-val get_exponent_sub_nfa : t -> res:int -> temp:int -> t
 val chrobak : t -> (int * int) list
 
 val get_chrobaks_sub_nfas
@@ -43,4 +43,4 @@ val get_chrobaks_sub_nfas
   -> res:deg
   -> temp:deg
   -> vars:int list
-  -> (t * (int * int) list * (int list * state) option) list
+  -> (t * (int * int) list * path option) list
