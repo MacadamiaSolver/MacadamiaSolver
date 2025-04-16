@@ -321,7 +321,7 @@ let get_model f =
 let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
   Format.printf
     "%b"
-    ({|AxEyEz x = 3y + 5z | x <= 7|}
+    ({|AxEyEz x = 3*y + 5*z | x <= 7|}
      |> Parser.parse_formula
      |> Result.get_ok
      |> proof
@@ -333,7 +333,7 @@ let%expect_test "Disproof any x > 6 can be represented as a linear combination o
   =
   Format.printf
     "%b"
-    ({|AxEyEz x = 3y + 5z | x <= 6|}
+    ({|AxEyEz x = 3*y + 5*z | x <= 6|}
      |> Parser.parse_formula
      |> Result.get_ok
      |> proof
@@ -422,7 +422,7 @@ let%expect_test "Proof if x > 3 and y > 4 then x + y > 7" =
 
 let%expect_test "Proof two is even" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -436,7 +436,7 @@ let%expect_test "Proof two is even" =
 
 let%expect_test "Proof three is odd" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -450,7 +450,7 @@ let%expect_test "Proof three is odd" =
 
 let%expect_test "Proof sum of two even is even" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -468,7 +468,7 @@ let%expect_test "Proof sum of two even is even" =
 
 let%expect_test "Proof sum of two even plus one is odd" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -486,7 +486,7 @@ let%expect_test "Proof sum of two even plus one is odd" =
 
 let%expect_test "Disproof sum of two even plus one is even" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -504,12 +504,12 @@ let%expect_test "Disproof sum of two even plus one is even" =
 
 let%expect_test "Proof a number is even iff it's not odd" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
   |> Result.get_ok;
-  {|Ey x = 2y + 1|}
+  {|Ey x = 2*y + 1|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "odd" [ "x" ]
@@ -540,10 +540,10 @@ let%expect_test "Get a model for x = 3 & y = 7" =
   [%expect {| x = 3  y = 7 |}]
 ;;
 
-let%expect_test "Get a model for Ey x = 7y & x > 9 & x < 20" =
+let%expect_test "Get a model for Ey x = 7*y & x > 9 & x < 20" =
   s := default_s ();
   let model =
-    {|Ey x = 7y & x > 9 & x < 20|}
+    {|Ey x = 7*y & x > 9 & x < 20|}
     |> Parser.parse_formula
     |> Result.get_ok
     |> get_model
@@ -991,7 +991,7 @@ let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" =
 
 let%expect_test "Proof exists even 2**x" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1009,7 +1009,7 @@ let%expect_test "Proof exists even 2**x" =
 
 let%expect_test "Proof exists odd (not even) 2**x" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1027,7 +1027,7 @@ let%expect_test "Proof exists odd (not even) 2**x" =
 
 let%expect_test "Proof not exists odd 2**x having x > 0" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1045,7 +1045,7 @@ let%expect_test "Proof not exists odd 2**x having x > 0" =
 
 let%expect_test "Proof exists even 2**x + 1" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1063,7 +1063,7 @@ let%expect_test "Proof exists even 2**x + 1" =
 
 let%expect_test "Proof not exists even 2**x + 1 for x > 0" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1081,7 +1081,7 @@ let%expect_test "Proof not exists even 2**x + 1 for x > 0" =
 
 let%expect_test "Proof exists an even 2**x" =
   s := default_s ();
-  {|Ey x = 2y|}
+  {|Ey x = 2*y|}
   |> Parser.parse_formula
   |> Result.get_ok
   |> pred "even" [ "x" ]
@@ -1101,7 +1101,7 @@ let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)
   =
   Format.printf
     "%b"
-    ({|2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z|}
+    ({|2**x <= y & y < (2*(2**x)) & 2**z <= 5*y & 5*y < (2*(2**z)) & x = z|}
      |> Parser.parse_formula
      |> Result.get_ok
      |> proof_semenov
@@ -1112,7 +1112,7 @@ let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)
 let%expect_test "Proof 2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z" =
   Format.printf
     "%b"
-    ({|2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5y = z|}
+    ({|2**x <= z & z < 2*(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5*y = z|}
      |> Parser.parse_formula
      |> Result.get_ok
      |> proof_semenov
@@ -1120,10 +1120,12 @@ let%expect_test "Proof 2**x <= z & z < 2(2**x) & 60 <= z & z <= 100 & ~x = 6 & 5
   [%expect {| true |}]
 ;;
 
-let%expect_test "Disproof 2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z" =
+let%expect_test
+    "Disproof 2**x <= z & z < 2*(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5*y = z"
+  =
   Format.printf
     "%b"
-    ({|2**x <= z & z < 2(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5y = z|}
+    ({|2**x <= z & z < 2*(2**x) & 61 <= z & z <= 100 & ~x = 6 & 5*y = z|}
      |> Parser.parse_formula
      |> Result.get_ok
      |> proof_semenov
