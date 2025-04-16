@@ -17,8 +17,6 @@ let is_digit = function
   | _ -> false
 ;;
 
-let const = take_while1 is_digit >>| int_of_string >>| Ast.const
-
 let is_idschar = function
   | 'a' .. 'z' | '_' -> true
   | _ -> false
@@ -29,24 +27,43 @@ let is_idchar = function
   | _ -> false
 ;;
 
+let is_opchar = function
+  | '='
+  | '<'
+  | '>'
+  | '!'
+  | '-'
+  | '+'
+  | '~'
+  | '|'
+  | '&'
+  | '%'
+  | '@'
+  | '#'
+  | '$'
+  | '*'
+  | '^'
+  | '/'
+  | '\\' -> true
+  | _ -> false
+;;
+
 let token p = whitespace *> p <* whitespace
+let const = token (take_while1 is_digit) >>| int_of_string >>| Ast.const
 
 let ident =
   let ident' =
     let* a = satisfy is_idschar in
-    let* b = take_while is_idchar in
+    let* b = take_while is_idchar <?> "Identifier can only contain symbols [a-z_0-9]" in
     String.make 1 a ^ b |> return
   in
-  token ident' <?> "expected identifier satisfying [a-z_0-9][a-z_0-9]*"
+  token ident' <?> "identifier"
 ;;
 
+let op = take_while is_opchar |> token
 let var = token ident >>| Ast.var
-
-let integer =
-  token (take_while1 is_digit) >>| int_of_string <?> "expected constant integer value"
-;;
-
-let parens p = token (char '(') *> p <* token (char ')')
+let integer = token (take_while1 is_digit) >>| int_of_string <?> "Integers "
+let parens p = token (char '(') *> p <* (token (char ')') <?> "expected ')'")
 
 let chainl1 e op =
   let rec go acc = lift2 (fun f x -> f acc x) op e >>= go <|> return acc in
@@ -62,59 +79,82 @@ let bin_op op ast p =
 
 let opt q p = q p <|> p
 
-let mul term =
-  let* c = integer in
-  let* body = term in
-  Ast.mul c body |> return
-;;
-
-let pow term =
-  let* c = integer <* token (string "**") in
-  let* body = term in
-  Ast.pow c body |> return
-;;
-
 let term =
+  let mul term =
+    let lmul =
+      let* c = integer <* token (string "*") in
+      let* body = term in
+      Ast.mul c body |> return
+    in
+    let rmul =
+      let* body = term <* token (string "*") in
+      let* c = integer in
+      Ast.mul c body |> return
+    in
+    lmul <|> rmul
+  in
+  let pow term =
+    let* c = integer <* token (string "**") in
+    let* body = term in
+    Ast.pow c body |> return
+  in
   fix (fun term ->
-    parens term <|> const <|> var |> opt pow |> opt mul |> bin_op "+" Ast.add)
-;;
-
-let pred =
-  let* name = ident in
-  let* params = term |> many in
-  Ast.pred name params |> return
-;;
-
-let pred_op op ast =
-  let* a = term in
-  let* _ = token (string op) in
-  let* b = term in
-  ast a b |> return
+    let aterm =
+      let* c = peek_char_fail in
+      match c with
+      | c when is_idschar c -> var
+      | c when is_digit c -> const
+      | '(' -> parens term
+      | _ -> fail "Expected term (i.e 'z * 5 + 2 + 3 * y' or '2**y')"
+    in
+    pow aterm <|> mul aterm <|> aterm |> bin_op "+" Ast.add)
+  <?> "term"
 ;;
 
 let aformula =
-  pred_op "=" Ast.eq
-  <|> pred_op "!=" Ast.neq
-  <|> pred_op "<" Ast.lt
-  <|> pred_op ">" Ast.gt
-  <|> pred_op "<=" Ast.leq
-  <|> pred_op ">=" Ast.geq
-  <|> pred
-  <?> "expected atomic formula"
-;;
-
-let quantifier sym ast formula =
-  let* _ = char sym in
-  let* var = ident in
-  let* formula = formula in
-  ast [ var ] formula |> return
+  let pred =
+    let* name = ident in
+    let* params = term |> many1 in
+    Ast.pred name params |> return
+  in
+  let pred_op =
+    let* a = term in
+    let* op = op in
+    let* ast =
+      match op with
+      | "=" -> return Ast.eq
+      | "!=" -> return Ast.neq
+      | "<" -> return Ast.lt
+      | ">" -> return Ast.gt
+      | "<=" -> return Ast.leq
+      | ">=" -> return Ast.geq
+      | "~=" | "<>" ->
+        Format.sprintf "Unknown operator ~=, probably you've meant !=" |> fail
+      | "==" -> Format.sprintf "Unknown operator ==, probably you've meant =" |> fail
+      | s -> Format.sprintf "Unknown operator %s" s |> fail
+    in
+    let* b = term in
+    ast a b |> return
+  in
+  pred <|> pred_op <?> "atomic formula"
 ;;
 
 let formula =
+  let quantifier sym ast formula =
+    let* _ = char sym in
+    let* var = ident in
+    let* formula = formula in
+    ast [ var ] formula |> return
+  in
   fix (fun formula ->
+    let formula0 =
+      let* c = peek_char_fail in
+      match c with
+      | '(' -> parens formula
+      | _ -> aformula
+    in
     let formula1 =
-      parens formula
-      <|> aformula
+      formula0
       |> opt (un_op "~" Ast.mnot)
       |> bin_op "&" Ast.mand
       |> bin_op "|" Ast.mor
@@ -122,7 +162,7 @@ let formula =
       |> bin_op "<->" Ast.miff
     in
     quantifier 'A' Ast.any formula <|> quantifier 'E' Ast.exists formula <|> formula1)
-  <?> "expected formula"
+  <?> "formula"
 ;;
 
 let stmt =
@@ -148,8 +188,8 @@ let stmt =
   | _ -> Format.sprintf "Unknown keyword %s" kw |> fail
 ;;
 
-let parse_formula str = parse_string ~consume:Prefix formula str
-let parse str = parse_string ~consume:Prefix stmt str
+let parse_formula str = parse_string ~consume:All formula str
+let parse str = parse_string ~consume:All stmt str
 
 let%expect_test "parse simple formula" =
   Format.printf "%a" Ast.pp_formula (parse_formula {|Ax x = 2 | x != 2|} |> Result.get_ok);
@@ -157,7 +197,7 @@ let%expect_test "parse simple formula" =
 ;;
 
 let%expect_test "parse multiple quantifier formula" =
-  Format.printf "%a" Ast.pp_formula (parse_formula {|ExEy z = 5x + 3y|} |> Result.get_ok);
+  Format.printf "%a" Ast.pp_formula (parse_formula {|ExEy z = 5*x + 3*y|} |> Result.get_ok);
   [%expect {| (Ex (Ey (z = ((5 * x) + (3 * y))))) |}]
 ;;
 
@@ -174,8 +214,20 @@ let%expect_test "parse parens and complex priorities" =
     "%a"
     Ast.pp_formula
     (parse_formula
-       {|a = 1 & b = 2 & (t + 2(z + 3q) + (2d + 5w) >= 15 | (Ex Ey x + y = 15))|}
+       {|a = 1 & b = 2 & (t + 2*(z + 3*q) + (2*d + 5*w) >= 15 | (Ex Ey x + y = 15))|}
      |> Result.get_ok);
   [%expect
     {| (((a = 1) & (b = 2)) & ((((t + (2 * (z + (3 * q)))) + ((2 * d) + (5 * w))) >= 15) | (Ex (Ey ((x + y) = 15))))) |}]
+;;
+
+let%expect_test "unknown_operator" =
+  Format.printf "%s\n" (parse_formula {|x % 5|} |> Result.get_error);
+  Format.printf "%s\n" (parse_formula {|x <> 5|} |> Result.get_error);
+  Format.printf "%s\n" (parse_formula {|x == 5|} |> Result.get_error);
+  [%expect
+    {|
+    formula > atomic formula: Unknown operator %
+    formula > atomic formula: Unknown operator ~=, probably you've meant !=
+    formula > atomic formula: Unknown operator ==, probably you've meant =
+    |}]
 ;;
