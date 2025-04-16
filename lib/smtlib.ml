@@ -37,7 +37,12 @@ let is_symbolchar = function
   | _ -> false
 ;;
 
-let token p = whitespace *> p <* whitespace
+let token p =
+  let p1 = whitespace *> p <* whitespace in
+  let comment = whitespace *> char ';' <* take_while (fun c -> c <> '\n') in
+  comment *> p1 <|> p1
+;;
+
 let parens p = (char '(' |> token) *> p <* (char ')' |> token)
 
 let symbol =
