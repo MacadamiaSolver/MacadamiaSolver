@@ -1,4 +1,5 @@
 open Lib
+module Map = Base.Map.Poly
 
 type state =
   { asserts : Ast.formula list
@@ -13,6 +14,7 @@ let return = Result.ok
 let rec term s = function
   | Smtlib.Apply (f, _, ts) ->
     let top2 ast =
+      assert (List.length ts = 2);
       let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* t1 = t1 |> term s in
       let* t2 = List.nth_opt ts 1 |> Option.to_result ~none:"expected an argument" in
@@ -53,11 +55,13 @@ let rec formula s = function
     Ast.exists vars f |> return
   | Smtlib.Apply (f, _, ts) ->
     let fop1 ast =
+      assert (List.length ts = 1);
       let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* t1 = formula s t1 in
       ast t1 |> return
     in
     let fop2 ast =
+      assert (List.length ts = 2);
       let* f1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* f1 = f1 |> formula s in
       let* f2 = List.nth_opt ts 1 |> Option.to_result ~none:"expected an argument" in
@@ -65,6 +69,7 @@ let rec formula s = function
       ast f1 f2 |> return
     in
     let top2 ast =
+      assert (List.length ts = 2);
       let* t1 = List.nth_opt ts 0 |> Option.to_result ~none:"expected an argument" in
       let* t1 = t1 |> term s in
       let* t2 = List.nth_opt ts 1 |> Option.to_result ~none:"expected an argument" in
@@ -127,6 +132,16 @@ let run { asserts; vars; logic; _ } =
   | [] -> true
 ;;
 
+let getmodel { asserts; vars; logic; _ } =
+  match asserts with
+  | h :: tl ->
+    (match logic with
+     | "ALL" -> Result.error "Semenov arithmetic doesn't support getting a model yet"
+     | _ ->
+       List.fold_left Ast.mand h tl |> (fun f -> Ast.exists vars f) |> Solver.get_model)
+  | [] -> Result.error "No assertions are made to get model for"
+;;
+
 let command s = function
   | Smtlib.SetLogic logic -> set_logic s logic |> Result.ok
   | Smtlib.Assert' f ->
@@ -135,7 +150,17 @@ let command s = function
   | Smtlib.DeclareFun (f, _sorts, _sort) -> f |> add_var s |> Result.ok
   | Smtlib.CheckSat ->
     let res = run s in
-    Format.printf "Result: %b \n" res;
+    if res then Format.printf "sat%!\n" else Format.printf "unsat%!\n";
+    s |> Result.ok
+  | Smtlib.GetModel ->
+    (match getmodel s with
+     | Ok model ->
+       (match model with
+        | Some model ->
+          Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+          Format.printf "\n%!"
+        | None -> Format.printf "No model\n%!")
+     | Error msg -> Format.printf "Unable to get model: %s%!\n" msg);
     s |> Result.ok
   | _ -> s |> Result.ok
 ;;
@@ -159,11 +184,5 @@ let read_whole_file filename =
 let () =
   let filename = Array.get Sys.argv 1 in
   let s = read_whole_file filename |> Smtlib.parse |> Result.get_ok in
-  (*Format.printf
-    "%a@."
-    (Format.pp_print_list
-       ~pp_sep:(fun ppf () -> Format.fprintf ppf "\n")
-       Smtlib.pp_command)
-    s;*)
   script init s |> Result.get_ok
 ;;

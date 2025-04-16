@@ -282,6 +282,7 @@ type command =
   | Assert' of term (* Renamed not to clash with OCaml keywords. *)
   | CheckSat
   | GetAssertions
+  | GetModel
   | GetProof
   | GetUnsatCore
   | GetValue of term list
@@ -312,6 +313,7 @@ let command =
     | "assert" -> term >>| assert'
     | "check-sat" -> return checksat
     | "get-assertions" -> return getassertions
+    | "get-model" -> return getmodel
     | "get-proof" -> return getproof
     | "get-unsat-core" -> return getunsatcore
     | "get-assignment" -> return getassignment
