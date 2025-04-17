@@ -8,35 +8,49 @@ type t =
   | Mor of t * t
   | Concat of t * t
   | Kleene of t
+  | Mnot of t
 [@@deriving variants, show]
 
-let concat r s =
-  match r, s with
-  | Empty, _ | _, Empty -> Empty
-  | Epsilon, _ -> s
-  | _, Epsilon -> r
-  | _, _ -> concat r s
+let all = mnot empty
+
+let kleene = function
+  | Kleene r -> kleene r
+  | Epsilon -> Epsilon
+  | Empty -> Epsilon
+  | r -> kleene r
 ;;
 
-let mor r s =
-  match r, s with
-  | Empty, _ -> s
-  | _, Empty -> r
+let concat r' s' =
+  match r', s' with
+  | Empty, _ | _, Empty -> Empty
+  | Epsilon, r | r, Epsilon -> r
+  | r, s -> concat r s
+;;
+
+let mor r' s' =
+  match r', s' with
+  | Empty, r | r, Empty -> r
   | Mor (r, s), t when t = s || t = r -> mor r s
   | t, Mor (r, s) when t = s || t = r -> mor r s
+  | Mnot Empty, _ | _, Mnot Empty -> all
   | r, s when r = s -> r
-  | _, _ -> mor r s
+  | r, s -> mor r s
 ;;
 
-let mand r s =
-  match r, s with
+let mand r' s' =
+  match r', s' with
   | Empty, _ | _, Empty -> Empty
-  | Epsilon, _ -> Epsilon
-  | _, Epsilon -> Epsilon
+  | Epsilon, _ | _, Epsilon -> Epsilon
+  | Mnot Empty, r | r, Mnot Empty -> r
   | Mand (r, s), t when t = s || t = r -> mand r s
   | t, Mand (r, s) when t = s || t = r -> mand r s
   | r, s when r = s -> r
-  | _, _ -> mand r s
+  | r, s -> mand r s
+;;
+
+let mnot = function
+  | Mnot (Mnot r) -> r
+  | r -> mnot r
 ;;
 
 let ( <|> ) = mor
@@ -51,6 +65,7 @@ let rec v = function
   | Mor (r, s) -> v r || v s
   | Mand (r, s) -> v r && v s
   | Kleene _ -> true
+  | Mnot r -> v r |> not
 ;;
 
 let rec deriv a = function
@@ -61,13 +76,14 @@ let rec deriv a = function
   | Mor (r, s) -> deriv a r <|> deriv a s
   | Mand (r, s) -> deriv a r <&> deriv a s
   | Kleene r -> deriv a r <*> kleene r
+  | Mnot r -> mnot (deriv a r)
 ;;
 
 let rec symbols = function
   | Empty | Epsilon -> []
   | Symbol a -> [ a ]
   | Concat (r, s) | Mor (r, s) | Mand (r, s) -> List.append (symbols r) (symbols s)
-  | Kleene r -> symbols r
+  | Kleene r | Mnot r -> symbols r
 ;;
 
 let ( -- ) i j =
