@@ -147,14 +147,9 @@ let formula =
     ast [ var ] formula |> return
   in
   fix (fun formula ->
-    let formula0 =
-      let* c = peek_char_fail in
-      match c with
-      | '(' -> parens formula
-      | _ -> aformula
-    in
     let formula1 =
-      formula0
+      parens formula
+      <|> aformula
       |> opt (un_op "~" Ast.mnot)
       |> bin_op "&" Ast.mand
       |> bin_op "|" Ast.mor

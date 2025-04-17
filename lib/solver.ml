@@ -736,6 +736,17 @@ let proof_semenov formula =
         if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
       vars
   in
+  let nfa =
+    Map.fold
+      ~f:(fun ~key:k ~data:v acc ->
+        if is_exp k
+        then acc
+        else if Map.mem vars ("2**" ^ k) |> not
+        then Nfa.project [ v ] acc
+        else acc)
+      ~init:nfa
+      vars
+  in
   let nfa = Nfa.minimize nfa in
   Debug.dump_nfa
     ~msg:"Minimized original nfa: %s"
@@ -744,7 +755,10 @@ let proof_semenov formula =
     nfa;
   let s = { !s with vars } in
   let get_deg x = Map.find_exn vars x in
-  let orders : string list list = decide_order vars in
+  let powered_vars =
+    Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars ("2**" ^ k)) vars
+  in
+  let orders : string list list = decide_order powered_vars in
   let first x =
     x
     |> Seq.find (function
@@ -833,7 +847,7 @@ let proof_semenov formula =
       if len <= 1
       then Ok nfa
       else
-        let* order_nfa, _ =
+        let* order_nfa, order_vars =
           eval
             s
             (Seq.zip
@@ -844,6 +858,11 @@ let proof_semenov formula =
              |> function
              | [] -> failwith ""
              | h :: tl -> List.fold_left Ast.mand h tl)
+        in
+        let order_nfa =
+          Nfa.reenumerate
+            (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn vars k))
+            order_nfa
         in
         Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
     in
