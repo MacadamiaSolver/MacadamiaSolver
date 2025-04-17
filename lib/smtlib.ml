@@ -247,7 +247,7 @@ let term =
 ;;
 
 let%expect_test "terms" =
-  parse_string ~consume:Prefix term {|(not (= (+ (* x0 11) (* x1 13)) P))|}
+  parse_string ~consume:All term {|(not (= (+ (* x0 11) (* x1 13)) P))|}
   |> Result.get_ok
   |> Format.printf "%a@." pp_term;
   [%expect
