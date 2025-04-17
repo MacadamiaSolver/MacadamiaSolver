@@ -103,8 +103,8 @@ let rec formula s = function
      | "<" -> top2 Ast.lt
      | ">" -> top2 Ast.gt
      | "not" -> fop1 Ast.mnot
-     | "and" -> fop2 Ast.mand
-     | "or" -> fop2 Ast.mor
+     | "and" -> cf Ast.mand
+     | "or" -> cf Ast.mor
      | "=>" -> fop2 Ast.mimpl
      | _ -> Result.error "uninmplemented")
     (* TODO: string is ignored *)
