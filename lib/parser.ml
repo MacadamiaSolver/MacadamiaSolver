@@ -185,7 +185,7 @@ let stmt =
   | "parse" -> lift Ast.parse formula
   | "list" -> return Ast.list
   | "help" -> return Ast.help
-  | _ -> Format.sprintf "Unknown keyword %s" kw |> fail
+  | _ -> Format.sprintf "Unknown command %s" kw |> fail
 ;;
 
 let parse_formula str = parse_string ~consume:All formula str
