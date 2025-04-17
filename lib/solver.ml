@@ -11,6 +11,7 @@ type t =
 
 let ( let* ) = Result.bind
 let return = Result.ok
+let fail = Result.error
 let throw_if cond a = if cond then Result.error a else Result.ok ()
 let default_s () = { preds = []; rpreds = []; vars = Map.empty; total = 0; progress = 0 }
 let s = ref (default_s ())
@@ -201,6 +202,16 @@ let eval s ast =
          with
          | Some pred ->
            let _, pred_params, _, pred_nfa, pred_vars = pred in
+           let* () =
+             let pl = List.length pred_params in
+             let al = List.length args in
+             Format.sprintf
+               "expected %d arguments for predicate %s but found %d arguments"
+               pl
+               name
+               al
+             |> throw_if (pl <> al)
+           in
            let args = List.map (teval s) args in
            let map =
              List.mapi
@@ -224,7 +235,7 @@ let eval s ast =
               let nfa = rpred_nfa |> Nfa.reenumerate map in
               let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
               nfa |> Nfa.truncate (deg ()) |> return
-            | None -> Result.error "Unknown predicate"))
+            | None -> Format.sprintf "unknown predicate %s" name |> fail))
       | _ -> failwith "unimplemented"
     in
     nfa
@@ -281,7 +292,7 @@ let predr name re =
 ;;
 
 let proof f =
-  let* _ =
+  let* () =
     throw_if
       (Ast.for_some
          (fun _ -> false)
@@ -296,7 +307,7 @@ let proof f =
 ;;
 
 let get_model f =
-  let* _ =
+  let* () =
     throw_if
       (Ast.for_some
          (fun _ -> false)
