@@ -264,7 +264,17 @@ let list () =
         f;
       aux xs
   in
-  aux !s.preds
+  Format.printf "Usual predicates:\n%!";
+  aux !s.preds;
+  let rec aux = function
+    | [] -> ()
+    | (name, re, _) :: xs ->
+      Format.printf "%s = %a\n%!" name Regex.pp re;
+      aux xs
+  in
+  Format.printf "\nRegular predicates:\n%!";
+  aux !s.rpreds;
+  Format.printf "\n\n%!"
 ;;
 
 let pred name params f =
