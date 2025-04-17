@@ -9,16 +9,19 @@ To build the project you'll need these dependencies to be installed:
 
 You may install the dependencies using the following bash commands:
 ```bash
-#
+# This would install OCaml package manager and the OCaml 5.2 itself.
 bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
 opam switch create 5.2.0+flambda --packages=ocaml-variants.5.2.0+options,ocaml-option-flambda --yes
 ```
 
 ## Building
+
 The MacadamiaSolver project can be built like this:
+
 ```bash
 # Installing project dependencies.
 opam install . --deps-only --with-test
+
 # Building the project and its tests.
 opam exec -- dune build @check @all
 ```
@@ -27,67 +30,71 @@ The executable binary is available in the `_build` dir.
 
 ## Usage
 
-By default opam build an executable in `./_build/default/bin/main.exe`. Starting it up brings you to REPL for evaluating theorem proving. We strongly encourage you to run it the following way
+You might execute `.smt2` files in `LIA` or custom exponent arithmetic with MacadamiaSolver that's defined with `ALL` in .smt2. Later allows you to use custom `exp` functional symbol.
+
 ```bash
-ledit ./_build/default/bin/main.exe
+./_build/default/bin/smtlib.exe <path-to-smt2-file>
 ```
+
+## Custom REPL
+
+During the development REPL for the tool has been developed. It allows defining predicates, proving theorems and visualizing the automaton the solver builds. By default opam builds an executable in `./_build/default/bin/mandams.exe`. Starting it up brings you to REPL for evaluating theorem proving. We strongly encourage you to run it the following way.
+
+```bash
+ledit ./_build/default/bin/mandams.exe
+```
+
 Using common unix `ledit` allows navigating through the input and switching the history of executed commands.
 
-Commands supported by the REPL and their semantics:
-- `let <name> <params...> = <FOL formula>` - define a new predicate.
-- `list` - list existing predicates.
-- `eval <formula>` - prove a theorem.
-- `evalm <formula>` - get a model for free variables in a formula.
-- `evalsemenov <formula>` - prove an existential Semёnov arithmetic theorem.
-- `dump <FOL formula>` - display the automaton for the desired FOL formula using GraphViz.
-- `parse <FOL formula>` - display the AST tree for the FOL formula.
-- `help` - display help information.
+You might list the examples and information on how to use the REPL using the `help` commands.
 
 MacadamiaSolver uses the syntax defined by the following grammar rules for expression first-order logic statements:
+
 ```
-formula ::= ( formula )
-          | ~formula
-          | formula & formula
-          | formula '|' formula
-          | formula -> formula
-          | formula <- formula
-          | formula <-> formula
-          | E var formula
-          | A var formula
-          | atomic_formula
+formula := (formula)
+         | ~formula                    (* not *)
+         | formula & formula           (* and *)
+         | formula '|' formula         (* or *)
+         | formula -> formula          (* imply *)
+         | formula <-> formula         (* iff *)
+         | E var formula               (* exists *)
+         | A var formula               (* forall *)
+         | atomic_formula
 
-atomic_formula ::= term = term
-                 | term != term
-                 | term < term
-                 | term > term
-                 | term <= term
-                 | term >= term
-                 | pred term*
+atomic_formula := term = term          (* equals *)
+                | term != term         (* not equals *)
+                | term < term          (* less than *)
+                | term > term          (* greater than *)
+                | term <= term         (* less or equal *)
+                | term >= term         (* greater or equal *)
+                | pred term+           (* custom predicate *)
 
-pred ::= [a-zA-Z_][a-zA-Z_0-9]*
+pred := [a-z_][a-z_0-9]*
 
-term ::= (term)
-       | const (term) | const var
-       | var
-       | const
-var ::= [a-zA-Z_][a-zA-Z_0-9]*
-const ::= [0-9]+
+term := (term)
+      | const * term | term * const    (* multiply by const *)
+      | term + term                    (* sum *)
+      | 2**term                        (* 2 to the power of... *)
+      | var
+      | const
+var := [a-z_][a-z_0-9]*
+const := [0-9]+
 ```
 
 Example usages:
 ```
 > eval Ax Ey x = y + 1
-  Result: true
+  sat
 
-> let even x = Ey x = 2y
+> let even x = Ey x = 2*y
 > eval AxAyAz x + y = z & even(x) & even(y) -> even(z + 1)
-  Result: false
+  unsat
 
 > eval AxAyAz x + y = z & even(x) & even(y) -> even(z)
-  Result: true
+  sat
 
 > evalsemenov 2**x = 2**y + 2**z + 7
-  Result: true
+  sat
 ```
 
 
@@ -98,4 +105,4 @@ Our future plans include:
 
 ## Acknowledgements
 
-This repository contains unit-tests based on the Frobenious coin problem benchmarks from the [SMT-LIB benchmark submission repository](https://github.com/SMT-LIB/benchmark-submission) licensed under [Creative-Commons 4.0](https://creativecommons.org/licenses/by/4.0/) generated by Vojtěch Havlena, Michal Hečko, Lukáš Holík, Ondřej Lengál.
+This repository contains unit-tests and examples based on the Frobenious coin problem benchmarks from the [SMT-LIB benchmark submission repository](https://github.com/SMT-LIB/benchmark-submission) licensed under [Creative-Commons 4.0](https://creativecommons.org/licenses/by/4.0/) generated by Vojtěch Havlena, Michal Hečko, Lukáš Holík, Ondřej Lengál.
