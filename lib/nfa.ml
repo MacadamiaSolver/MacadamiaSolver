@@ -155,9 +155,9 @@ module Graph = struct
   let reachable_in_range (graph : t) first last (init : state Set.t) =
     assert (first <= last);
     let diff = last - first + 1 in
-    let rec helper n cur =
+    let rec helper n cur cont =
       match n with
-      | 0 -> [ cur ], 1
+      | 0 -> cont ([ cur ], 1)
       | n ->
         let states =
           cur
@@ -166,10 +166,10 @@ module Graph = struct
             graph.(state) |> Sequence.of_list |> Sequence.map ~f:snd)
           |> Set.of_sequence
         in
-        let next, amount = helper (n - 1) states in
-        if amount < diff then states :: next, amount + 1 else next, amount
+        helper (n - 1) states (fun (next, amount) ->
+          cont (if amount < diff then states :: next, amount + 1 else next, amount))
     in
-    helper last init |> fst
+    helper last init fst
   ;;
 
   let rec _reachable (graph : t) (start : state Set.t) : state Set.t =
