@@ -49,7 +49,16 @@ let is_opchar = function
 ;;
 
 let token p = whitespace *> p <* whitespace
-let const = token (take_while1 is_digit) >>| int_of_string >>| Ast.const
+
+let integer =
+  token
+    (char '-' *> take_while1 is_digit
+     >>| (fun x -> -int_of_string x)
+     <|> (take_while1 is_digit >>| int_of_string))
+  <?> "Integers "
+;;
+
+let const = integer >>| Ast.const
 
 let ident =
   let ident' =
@@ -62,7 +71,6 @@ let ident =
 
 let op = take_while is_opchar |> token
 let var = token ident >>| Ast.var
-let integer = token (take_while1 is_digit) >>| int_of_string <?> "Integers "
 let parens p = token (char '(') *> p <* (token (char ')') <?> "expected ')'")
 
 let chainl1 e op =
