@@ -10,6 +10,9 @@ type term =
   | Const of int
   | Add of term * term
   | Mul of int * term
+  | Bvand of term * term
+  | Bvor of term * term
+  | Bvxor of term * term
   | Pow of int * term
 [@@deriving variants]
 
@@ -47,6 +50,9 @@ let rec pp_term ppf = function
   | Var n -> Format.fprintf ppf "%s" n
   | Const n -> Format.fprintf ppf "%d" n
   | Add (a, b) -> Format.fprintf ppf "(%a + %a)" pp_term a pp_term b
+  | Bvor (a, b) -> Format.fprintf ppf "(%a | %a)" pp_term a pp_term b
+  | Bvxor (a, b) -> Format.fprintf ppf "(%a ^ %a)" pp_term a pp_term b
+  | Bvand (a, b) -> Format.fprintf ppf "(%a & %a)" pp_term a pp_term b
   | Mul (a, b) -> Format.fprintf ppf "(%d * %a)" a pp_term b
   | Pow (a, b) -> Format.fprintf ppf "(%d ** %a)" a pp_term b
 ;;
@@ -106,7 +112,8 @@ let tfold ft acc t =
   let rec foldt acc = function
     | (Const _ | Var _) as f -> ft acc f
     | (Pow (_, t1) | Mul (_, t1)) as t -> ft (foldt acc t1) t
-    | Add (t1, t2) as t -> ft (foldt (foldt acc t1) t2) t
+    | (Add (t1, t2) | Bvand (t1, t2) | Bvor (t1, t2) | Bvxor (t1, t2)) as t ->
+      ft (foldt (foldt acc t1) t2) t
   in
   foldt acc t
 ;;
@@ -115,7 +122,8 @@ let fold ff ft acc f =
   let rec foldt acc = function
     | (Const _ | Var _) as f -> ft acc f
     | (Pow (_, t1) | Mul (_, t1)) as t -> ft (foldt acc t1) t
-    | Add (t1, t2) as t -> ft (foldt (foldt acc t1) t2) t
+    | (Add (t1, t2) | Bvand (t1, t2) | Bvor (t1, t2) | Bvxor (t1, t2)) as t ->
+      ft (foldt (foldt acc t1) t2) t
   in
   let rec foldf acc = function
     | (True | False) as f -> ff acc f
@@ -147,6 +155,9 @@ let map ff ft f =
     | (Const _ | Var _) as f -> ft f
     | Mul (a, t1) -> Mul (a, mapt t1) |> ft
     | Add (t1, t2) -> Add (mapt t1, mapt t2) |> ft
+    | Bvand (t1, t2) -> Bvand (mapt t1, mapt t2) |> ft
+    | Bvor (t1, t2) -> Bvor (mapt t1, mapt t2) |> ft
+    | Bvxor (t1, t2) -> Bvxor (mapt t1, mapt t2) |> ft
     | Pow (a, t1) -> Pow (a, mapt t1) |> ft
   in
   let rec mapf = function

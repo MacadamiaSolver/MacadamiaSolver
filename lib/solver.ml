@@ -65,6 +65,12 @@ let internal s =
 let teval s ast =
   let var_exn v = Map.find_exn s.vars v in
   let rec teval ast =
+    let teval2 build_nfa l r =
+      let lv, la = teval l in
+      let rv, ra = teval r in
+      let res = internal s in
+      res, build_nfa ~lhs:lv ~rhs:rv ~res |> Nfa.intersect la |> Nfa.intersect ra
+    in
     match ast with
     | Ast.Var a ->
       let var = var_exn a in
@@ -72,13 +78,10 @@ let teval s ast =
     | Ast.Const a ->
       let var = internal s in
       var, NfaCollection.eq_const var a
-    | Ast.Add (l, r) ->
-      let lv, la = teval l in
-      let rv, ra = teval r in
-      let res = internal s in
-      ( res
-      , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res |> Nfa.intersect la |> Nfa.intersect ra
-      )
+    | Ast.Add (l, r) -> teval2 NfaCollection.add l r
+    | Ast.Bvand (l, r) -> teval2 NfaCollection.bvand l r
+    | Ast.Bvor (l, r) -> teval2 NfaCollection.bvor l r
+    | Ast.Bvxor (l, r) -> teval2 NfaCollection.bvxor l r
     | Ast.Mul (a, b) ->
       let rec teval_mul a b =
         match a with
@@ -91,13 +94,13 @@ let teval s ast =
            | 0 ->
              let tv, ta = teval_mul (a / 2) b in
              let res = internal s in
-             res, NfaCollection.add ~lhs:tv ~rhs:tv ~sum:res |> Nfa.intersect ta
+             res, NfaCollection.add ~lhs:tv ~rhs:tv ~res |> Nfa.intersect ta
            | 1 ->
              let tv, ta = teval_mul (a - 1) b in
              let uv, ua = teval b in
              let res = internal s in
              ( res
-             , NfaCollection.add ~lhs:tv ~rhs:uv ~sum:res
+             , NfaCollection.add ~lhs:tv ~rhs:uv ~res
                |> Nfa.intersect ta
                |> Nfa.intersect ua )
            | _ -> assert false)
@@ -133,6 +136,15 @@ let eval s ast =
         let rv, ra = teval s r in
         reset_internals ();
         NfaCollection.eq lv rv
+        |> Nfa.intersect la
+        |> Nfa.intersect ra
+        |> Nfa.truncate (deg ())
+        |> return
+      | Ast.Neq (l, r) ->
+        let lv, la = teval s l in
+        let rv, ra = teval s r in
+        reset_internals ();
+        NfaCollection.neq lv rv
         |> Nfa.intersect la
         |> Nfa.intersect ra
         |> Nfa.truncate (deg ())
@@ -310,7 +322,7 @@ let get_model f =
            | Ast.Pow (_, _) -> true
            | _ -> false)
          f)
-      ""
+      "Semenov arithmetic doesn't support getting a model yet"
   in
   let* nfa, vars = f |> eval !s in
   let free_vars = f |> collect_free |> Set.to_list in
@@ -416,10 +428,10 @@ let nfa_for_exponent2 s var var2 chrob =
       Nfa.project
         [ var2_plus_a; c_mul_t; t; a_var ]
         (Nfa.intersect
-           (NfaCollection.add ~lhs:var2_plus_a ~rhs:c_mul_t ~sum:var)
+           (NfaCollection.add ~lhs:var2_plus_a ~rhs:c_mul_t ~res:var)
            (Nfa.intersect
               (Nfa.intersect
-                 (NfaCollection.add ~sum:var2_plus_a ~lhs:var2 ~rhs:a_var)
+                 (NfaCollection.add ~res:var2_plus_a ~lhs:var2 ~rhs:a_var)
                  (NfaCollection.eq_const a_var a))
               (NfaCollection.mul ~res:c_mul_t ~lhs:c ~rhs:t)))
     in
@@ -451,7 +463,7 @@ let nfa_for_exponent s var newvar chrob =
       Nfa.project
         [ a_plus_d; c_mul_t; t ]
         (Nfa.intersect
-           (NfaCollection.add ~lhs:a_plus_d ~rhs:c_mul_t ~sum:var)
+           (NfaCollection.add ~lhs:a_plus_d ~rhs:c_mul_t ~res:var)
            (Nfa.intersect
               (NfaCollection.eq_const a_plus_d (a + d))
               (NfaCollection.mul ~res:c_mul_t ~lhs:c ~rhs:t)))
@@ -671,9 +683,12 @@ let proof f =
   in
   if run_semenov
   then proof_semenov f
-  else
+  else (
+    let f = Optimizer.optimize f in
+    Debug.printfln "optimized formula: %a" Ast.pp_formula f;
     let* nfa, _ = f |> eval !s in
-    Nfa.run nfa |> return
+    Debug.dump_nfa ~msg:"resulting nfa: %s" Nfa.format_nfa nfa;
+    Nfa.run nfa |> return)
 ;;
 
 let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =

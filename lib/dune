@@ -19,4 +19,5 @@
    ppx_variants_conv
    ppx_inline_test
    ppx_assert
-   ppx_expect)))
+   ppx_expect
+   ppx_regexp)))

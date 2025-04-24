@@ -10,6 +10,9 @@ type term =
   | Const of int
   | Add of term * term
   | Mul of int * term
+  | Bvand of term * term
+  | Bvor of term * term
+  | Bvxor of term * term
   | Pow of int * term
 [@@deriving variants]
 

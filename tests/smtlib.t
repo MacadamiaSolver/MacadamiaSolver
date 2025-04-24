@@ -23,3 +23,9 @@ Test bad
 
   $ Smtlib ./examples/bad-exp.smt2
   error during script evaluation: '=' expected all arguments to be formulas or terms; if you meant term the problem is 'only base two is supported'; if you meant formulas the problem is 'unimplemented SMT-lib construction: (Smtlib.SpecConstant (Smtlib.Numeric 9))'
+
+Test basic bitvectors
+
+  $ Smtlib ./examples/basic-bitvector-bitwise.smt2
+  sat
+  s = 0b11 (3) t = 0b10011 (19) 
