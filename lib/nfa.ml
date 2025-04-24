@@ -618,72 +618,84 @@ let reverse nfa =
 
 let to_dfa nfa =
   let counter = ref 0 in
-  let rec aux transitions visited final queue =
+  let length = length nfa in
+  let visited = Hashtbl.create length in
+  let is_visited qs = Hashtbl.mem visited qs in
+  let visit qs =
+    if is_visited qs |> not
+    then (
+      let q = !counter in
+      counter := !counter + 1;
+      Hashtbl.replace visited qs q)
+    else ()
+  in
+  let processed = Hashtbl.create length in
+  let is_processed qs = Hashtbl.mem processed qs in
+  let process qs =
+    if is_processed qs |> not then Hashtbl.replace processed qs true else ()
+  in
+  let q qs = Hashtbl.find visited qs in
+  let rec aux transitions final queue =
     if Queue.is_empty queue
     then transitions, final
     else (
       let qs = Queue.pop queue in
-      let is_visited visited qs = Map.find visited qs |> Option.is_some in
-      let visit visited qs =
-        if is_visited visited qs |> not
-        then (
-          let q = !counter in
-          counter := !counter + 1;
-          Map.set visited ~key:qs ~data:q)
-        else visited
-      in
-      let visited = visit visited qs in
-      let q visited qs = Map.find_exn visited qs in
-      let final =
-        if Set.are_disjoint nfa.final qs |> not
-        then Set.add final (q visited qs)
-        else final
-      in
-      let acc =
-        Set.fold
-          ~f:(fun acc q ->
-            let delta = Array.get nfa.transitions q in
-            List.fold_left
-              (fun acc (label, _) -> Label.combine acc label)
-              (Label.z nfa.deg)
-              delta
-            |> Label.combine acc)
-          ~init:(Label.z nfa.deg)
-          qs
-      in
-      let variations = Label.variations acc in
-      let delta, visited =
-        List.fold_left
-          (fun (acc, visited) label ->
-             let qs' =
-               Set.fold
-                 ~f:(fun acc q ->
-                   let delta = Array.get nfa.transitions q in
-                   let q' =
-                     delta
-                     |> List.filter (fun (label', _) -> Label.equal label label')
-                     |> List.map snd
-                   in
-                   List.append q' acc)
-                 ~init:[]
-                 qs
-               |> Set.of_list
-             in
-             let is_visited = is_visited visited qs' in
-             let q visited qs = Map.find_exn visited qs in
-             let visited = visit visited qs' in
-             let q' = q visited qs' in
-             if is_visited |> not then Queue.add qs' queue;
-             (label, q') :: acc, visited)
-          ([], visited)
-          variations
-      in
-      let delta', final' = aux transitions visited final queue in
-      delta :: delta', final')
+      if is_processed qs |> not
+      then (
+        visit qs;
+        process qs;
+        let final =
+          if Set.are_disjoint nfa.final qs |> not then Set.add final (q qs) else final
+        in
+        let acc =
+          Set.fold
+            ~f:(fun acc q ->
+              let delta = Array.get nfa.transitions q in
+              List.fold_left
+                (fun acc (label, _) -> Label.combine acc label)
+                (Label.z nfa.deg)
+                delta
+              |> Label.combine acc)
+            ~init:(Label.z nfa.deg)
+            qs
+        in
+        let variations = Label.variations acc in
+        let delta =
+          List.fold_left
+            (fun acc label ->
+               let qs' =
+                 Set.fold
+                   ~f:(fun acc q ->
+                     let delta = Array.get nfa.transitions q in
+                     let q' =
+                       delta
+                       |> List.filter (fun (label', _) -> Label.equal label label')
+                       |> List.map snd
+                     in
+                     List.append q' acc)
+                   ~init:[]
+                   qs
+                 |> Set.of_list
+               in
+               let q' =
+                 if Set.equal qs' qs |> not
+                 then (
+                   visit qs';
+                   Queue.add qs' queue;
+                   q qs')
+                 else q qs
+               in
+               (label, q') :: acc)
+            []
+            variations
+        in
+        let delta', final' = aux transitions final queue in
+        delta :: delta', final')
+      else aux transitions final queue)
   in
   let queue = Queue.create () in
   Queue.add nfa.start queue;
-  let transitions, final = aux [] Map.empty Set.empty queue in
+  let transitions, final = aux [] Set.empty queue in
   let transitions = Array.of_list transitions in
   { final; start = Set.singleton 0; transitions; deg = nfa.deg; is_dfa = true }
 ;;
