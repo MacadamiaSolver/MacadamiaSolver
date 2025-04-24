@@ -21,6 +21,7 @@ let is_symbolchar = function
   | '-'
   | '/'
   | '*'
+  | '#'
   | '='
   | '%'
   | '?'
@@ -40,7 +41,7 @@ let is_symbolchar = function
 let token p =
   let p1 = whitespace *> p <* whitespace in
   let comment = whitespace *> char ';' <* take_while (fun c -> c <> '\n') in
-  comment *> p1 <|> p1
+  many comment *> p1
 ;;
 
 let parens p = (char '(' |> token) *> p <* (char ')' |> token)
@@ -51,7 +52,7 @@ let symbol =
     let* tail = take_while is_symbolchar in
     return (Char.escaped head ^ tail)
   in
-  token symbol'
+  token (char '|' *> symbol' <* char '|' <|> symbol')
 ;;
 
 let%expect_test "symbols" =
@@ -100,10 +101,10 @@ type constant =
   | String of string
 [@@deriving show, variants]
 
-let decimal = fail "unimplemented"
-let hexademical = fail "unimplemented"
-let binary = fail "unimplemented"
-let string = fail "unimplemented"
+let decimal = fail "decimals are unimplemented"
+let hexademical = fail "hexadecimals are unimplemented"
+let binary = fail "binary literals are unimplemented"
+let string = fail "strings are unimplemented"
 
 let constant =
   let numeric =
@@ -128,7 +129,7 @@ let identifier =
     String.concat "\\" (symbol :: indices) |> return
   in
   let indexed_identifier = parens indexed_identifier' in
-  simple_identifier <|> indexed_identifier <?> "expected identifier"
+  simple_identifier <|> indexed_identifier <?> "identifier"
 ;;
 
 let%expect_test "identifiers" =
@@ -157,7 +158,7 @@ let sort =
       sort identifier sorts |> return
     in
     let multiple_sort = parens multiple_sort' in
-    simple_sort <|> multiple_sort <?> "expected sort")
+    simple_sort <|> multiple_sort <?> "sort")
 ;;
 
 let%expect_test "sorts" =
@@ -211,7 +212,7 @@ let term =
         (identifier, None) |> return
       in
       (* TODO: support "as" *)
-      let complex_identifier = fail "unimplemented" in
+      let complex_identifier = fail "'as' is unimplemented" in
       simple_identifier <|> complex_identifier
     in
     let simple_term =
@@ -243,7 +244,7 @@ let term =
     in
     let apply_term = apply_term' |> parens in
     let complex_term = parens complex_term' in
-    simple_term <|> complex_term <|> apply_term <?> "expected term")
+    simple_term <|> complex_term <|> apply_term <?> "term")
 ;;
 
 let%expect_test "terms" =
@@ -301,7 +302,7 @@ let command =
   let result' =
     let* keyword = take_while is_symbolchar |> token in
     match keyword with
-    | "set-logic" -> symbol >>| setlogic
+    | "set-logic" -> symbol <?> "set-logic name" >>| setlogic
     | "set-info" ->
       let* v = take_while (fun c -> c <> ')') in
       setinfo v |> return
@@ -309,9 +310,9 @@ let command =
       let* v = take_while (fun c -> c <> ')') in
       setoption v |> return
     | "declare-fun" ->
-      let* name = symbol in
-      let* arg_sorts = many sort |> parens in
-      let* ret_sort = sort in
+      let* name = symbol <?> "declare-fun name" in
+      let* arg_sorts = many sort |> parens <?> "declare-fun argument sorts" in
+      let* ret_sort = sort <?> "declare-fun return value sort" in
       declarefun name arg_sorts ret_sort |> return
     | "push" -> numeral >>| push
     | "pop" -> numeral >>| pop
@@ -324,13 +325,34 @@ let command =
     | "get-assignment" -> return getassignment
     | "get-value" -> many1 (term <* whitespace) >>| getvalue
     | "exit" -> return exit
-    | _ as command -> Format.sprintf "unknown SMT-lib command %s" command |> fail
+    | _ as command ->
+      Format.sprintf "unknown or unsupported SMT-lib command %s" command |> fail
   in
   parens result'
 ;;
 
-let script = many command
-let parse = parse_string ~consume:Prefix script
+let ( -- ) i j =
+  let rec aux n acc = if n < i then acc else aux (n - 1) (n :: acc) in
+  aux j []
+;;
+
+let script =
+  let* commands = many1 command in
+  let* at_end = at_end_of_input in
+  if at_end
+  then return commands
+  else
+    let* remaining = 0 -- 32 |> List.rev |> List.map (fun n -> peek_string n) |> choice in
+    let* _ =
+      command
+      <?> (remaining
+           |> String.map (fun c -> if c = '\n' then ' ' else c)
+           |> Format.sprintf "unable to parse '%s' ")
+    in
+    return []
+;;
+
+let parse s = parse_string ~consume:Prefix script s
 
 let%expect_test "check-sat" =
   let script =
@@ -577,6 +599,14 @@ let ( let* ) = Result.bind
 let return = Result.ok
 let fail = Result.error
 
+let rec fmap f = function
+  | [] -> return []
+  | h :: tl ->
+    let* h = f h in
+    let* tl = fmap f tl in
+    h :: tl |> return
+;;
+
 let rec to_term = function
   | Apply (f, _, ts) ->
     let arg n =
@@ -605,10 +635,14 @@ let rec to_term = function
       match t1, t2 with
       | Ast.Const d, _ -> ast d t2 |> return
       | _, Ast.Const d -> ast d t1 |> return
-      | _ -> "this operator is only supported between a constant and a term" |> fail
+      | _ ->
+        "multiplication operator is only supported between a constant and a term" |> fail
     in
-    (match f with
-     | "+" -> ct Ast.add
+    (match%pcre f with
+     (* LIA *)
+     | {|\+|} -> ct Ast.add
+     | {|\*|} -> tiop Ast.mul
+     (* EIA *)
      | "exp" ->
        let* t1 = arg 0 in
        let* t2 = arg 1 in
@@ -616,7 +650,17 @@ let rec to_term = function
         | Ast.Const d, _ ->
           if d = 2 then Ast.pow d t2 |> return else fail "only base two is supported"
         | _ -> fail "only exponents in 2**<var> syntax are supported")
-     | "*" -> tiop Ast.mul
+     (* BV *)
+     | "bv2nat" ->
+       let* t = arg 0 in
+       return t
+     | "bvadd" -> ct Ast.add
+     | "bvand" -> ct Ast.bvand
+     | "bvor" -> ct Ast.bvor
+     | "bvxor" -> ct Ast.bvxor
+     | {|int2bv\\\d+|} ->
+       let* t = arg 0 in
+       return t
      | _ -> Ast.var f |> return)
   | SpecConstant c ->
     (match c with
@@ -634,6 +678,36 @@ let rec to_formula = function
     let vars = vars |> List.map fst in
     let* f = to_formula t in
     Ast.exists vars f |> return
+  | Let' (bindings, f) ->
+    assert (List.length bindings >= 1);
+    let* f = to_formula f in
+    Ast.map
+      (function
+        | Ast.Pred (x, _) as f ->
+          (match List.find_opt (fun (var, _) -> x = var) bindings |> Option.map snd with
+           | Some binding ->
+             binding
+             |> (fun x ->
+             Format.printf "%a\n%!\n%!" pp_term x;
+             x)
+             |> to_formula
+             |> Result.get_ok
+           | None -> f)
+        | t -> t)
+      (function
+        | Ast.Var x as t ->
+          (match List.find_opt (fun (var, _) -> x = var) bindings |> Option.map snd with
+           | Some binding ->
+             binding
+             |> (fun x ->
+             Format.printf "%a\n%!\n%!" pp_term x;
+             x)
+             |> to_term
+             |> Result.get_ok
+           | None -> t)
+        | t -> t)
+      f
+    |> return
   | Apply (f, _, ts) ->
     let arg n =
       List.nth_opt ts n |> Option.to_result ~none:(Format.sprintf "missing %d argument" n)
@@ -698,7 +772,14 @@ let rec to_formula = function
      | "and" -> cf Ast.mand
      | "or" -> cf Ast.mor
      | "=>" -> fop2 Ast.mimpl
-     | _ as func -> Format.sprintf "unimplemented SMT-lib function: %s" func |> fail)
+     (* BV *)
+     | "bvule" -> top2 Ast.leq
+     | "bvuge" -> top2 Ast.geq
+     | "bvult" -> top2 Ast.lt
+     | "bvugt" -> top2 Ast.gt
+     | pred ->
+       let* ts = ts |> fmap to_term in
+       Ast.pred pred ts |> return)
     (* TODO: string is ignored *)
   | _ as term ->
     Format.asprintf "unimplemented SMT-lib construction: %a" pp_term term |> fail
@@ -750,13 +831,4 @@ let%expect_test "Basic formula" =
   |> Result.get_ok
   |> Format.printf "%a" Ast.pp_formula;
   [%expect {| (Ax0 x1 (((0 <= x0) & (0 <= x1)) -> (~ (((7 * x0) + (11 * x1)) = R)))) |}]
-;;
-
-let%expect_test "Unknown function" =
-  parse_string ~consume:Prefix term {|(strange_func x0 x1)|}
-  |> Result.get_ok
-  |> to_formula
-  |> Result.get_error
-  |> Format.printf "%s";
-  [%expect {| unimplemented SMT-lib function: strange_func |}]
 ;;

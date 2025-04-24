@@ -21,6 +21,7 @@
   dune
   angstrom
   bitv
+  ppx_regexp
   ppx_deriving
   ppx_variants_conv
   (ppx_expect :with-test)

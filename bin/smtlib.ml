@@ -1,59 +1,56 @@
 open Lib
 module Map = Base.Map.Poly
 
-type state =
-  { asserts : Ast.formula list
-  ; vars : string list
-  ; logic : string
+type var =
+  { name : string
+  ; sort : string
   }
 
-let init = { asserts = []; vars = []; logic = "LIA" }
+type state =
+  { asserts : Ast.formula list
+  ; vars : var list
+  }
+
+let init = { asserts = []; vars = [] }
 let ( let* ) = Result.bind
 let return = Result.ok
-let set_logic state logic' = { state with logic = logic' }
 
 let add_assert' ({ asserts; _ } as state) assert' =
   { state with asserts = assert' :: asserts }
 ;;
 
-let add_var ({ vars; _ } as state) var = { state with vars = var :: vars }
+let add_var ({ vars; _ } as state) name = function
+  (* TODO: support sort parameters *)
+  | Smtlib.Sort (sort, _) -> { state with vars = { name; sort } :: vars }
+;;
 
-let run { asserts; vars; logic; _ } =
+let run { asserts; vars; _ } =
   match asserts with
   | h :: tl ->
-    (match logic with
-     | "ALL" ->
-       List.fold_left Ast.mand h tl
-       |> (fun f ->
-       Debug.printfln "Formula to proof: %a" Ast.pp_formula f;
-       f)
-       |> Solver.proof
-     | _ ->
-       List.fold_left Ast.mand h tl
-       |> (fun f -> Ast.exists vars f)
-       |> (fun f ->
-       Debug.printfln "Formula to proof: %a" Ast.pp_formula f;
-       f)
-       |> Solver.proof)
+    List.fold_left Ast.mand h tl
+    |> (fun f -> Ast.exists (vars |> List.map (fun var -> var.name)) f)
+    |> (fun f ->
+    Debug.printfln "Formula to proof: %a" Ast.pp_formula f;
+    f)
+    |> Solver.proof
   | [] -> true |> return
 ;;
 
-let getmodel { asserts; vars; logic; _ } =
+let getmodel { asserts; _ } =
   match asserts with
-  | h :: tl ->
-    (match logic with
-     | "ALL" -> Result.error "Semenov arithmetic doesn't support getting a model yet"
-     | _ ->
-       List.fold_left Ast.mand h tl |> (fun f -> Ast.exists vars f) |> Solver.get_model)
+  | h :: tl -> List.fold_left Ast.mand h tl |> Solver.get_model
   | [] -> Result.error "No assertions are made to get model for"
 ;;
 
-let command s = function
-  | Smtlib.SetLogic logic -> set_logic s logic |> Result.ok
+let command ({ vars; _ } as s) = function
+  | Smtlib.SetLogic logic ->
+    (match logic with
+     | "ALL" | "LIA" | "QF_LIA" | "QF_BV" -> return s
+     | logic -> Format.sprintf "Logic %s is not supported" logic |> Result.error)
   | Smtlib.Assert' f ->
     let* f = Smtlib.to_formula f in
     add_assert' s f |> return
-  | Smtlib.DeclareFun (f, _sorts, _sort) -> f |> add_var s |> Result.ok
+  | Smtlib.DeclareFun (f, _sorts, sort) -> add_var s f sort |> Result.ok
   | Smtlib.CheckSat ->
     let res = run s in
     (match res with
@@ -65,7 +62,19 @@ let command s = function
      | Ok model ->
        (match model with
         | Some model ->
-          Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d  " k v) model;
+          Map.iteri
+            ~f:(fun ~key:varname ~data:value ->
+              let var = List.find (fun var -> var.name = varname) vars in
+              if String.starts_with ~prefix:"BitVec" var.sort
+              then
+                Format.printf
+                  "%s = 0b%a (%d) "
+                  var.name
+                  Bitv.M.print
+                  (Bitv.of_int_s value |> Bitv.to_list |> Bitv.of_list)
+                  value
+              else Format.printf "%s = %d  " var.name value)
+            model;
           Format.printf "\n%!"
         | None -> Format.printf "No model\n%!")
      | Error msg -> Format.printf "Unable to get model: %s%!\n" msg);
@@ -91,8 +100,17 @@ let read_whole_file filename =
 
 let () =
   let filename = Array.get Sys.argv 1 in
-  let s = read_whole_file filename |> Smtlib.parse |> Result.get_ok in
-  match script init s with
-  | Result.Ok () -> ()
-  | Result.Error err -> Format.printf "error during script evaluation: %s\n" err
+  let s = read_whole_file filename |> Smtlib.parse in
+  match s with
+  | Result.Ok s ->
+    Debug.printf
+      "parsed smtlib: %a\n"
+      (Format.pp_print_list
+         ~pp_sep:(fun ppf () -> Format.fprintf ppf " ")
+         Smtlib.pp_command)
+      s;
+    (match script init s with
+     | Result.Ok () -> ()
+     | Result.Error err -> Format.printf "error during script evaluation: %s\n" err)
+  | Result.Error err -> Format.printf "error during parsing script: %s\n" err
 ;;

@@ -1,0 +1,6 @@
+(set-logic ALL)
+(declare-fun s () (_ BitVec 512))
+(declare-fun t () (_ BitVec 512))
+(assert (and (= (bv2nat (bvand s t)) 3) (> (bv2nat t) 15)))
+(check-sat)
+(get-model)

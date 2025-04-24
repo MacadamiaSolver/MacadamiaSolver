@@ -2,7 +2,7 @@ module Map = Nfa.Map
 
 type varpos = int
 
-let add ~lhs ~rhs ~sum =
+let add ~lhs ~rhs ~res =
   Nfa.create_nfa
     ~transitions:
       [ 0, 0b000, 0
@@ -16,8 +16,8 @@ let add ~lhs ~rhs ~sum =
       ]
     ~start:[ 0 ]
     ~final:[ 0 ]
-    ~vars:[ sum; rhs; lhs ]
-    ~deg:((max lhs rhs |> max sum) + 1)
+    ~vars:[ res; rhs; lhs ]
+    ~deg:((max lhs rhs |> max res) + 1)
 ;;
 
 let eq lhs rhs =
@@ -25,6 +25,24 @@ let eq lhs rhs =
     ~transitions:[ 0, 0b00, 0; 0, 0b11, 0 ]
     ~start:[ 0 ]
     ~final:[ 0 ]
+    ~vars:[ lhs; rhs ]
+    ~deg:(max lhs rhs + 1)
+;;
+
+let neq lhs rhs =
+  Nfa.create_nfa
+    ~transitions:
+      [ 0, 0b00, 0
+      ; 0, 0b11, 0
+      ; 0, 0b01, 1
+      ; 0, 0b10, 1
+      ; 1, 0b00, 1
+      ; 1, 0b01, 1
+      ; 1, 0b10, 1
+      ; 1, 0b11, 1
+      ]
+    ~start:[ 0 ]
+    ~final:[ 1 ]
     ~vars:[ lhs; rhs ]
     ~deg:(max lhs rhs + 1)
 ;;
@@ -133,13 +151,40 @@ let mul ~res ~lhs ~rhs =
     | _ when lhs mod 2 = 0 ->
       let newvar = max (max res lhs) rhs + 1 in
       let a = helper ~res:newvar ~lhs:(lhs / 2) ~rhs in
-      let b = add ~sum:res ~lhs:newvar ~rhs:newvar in
+      let b = add ~res ~lhs:newvar ~rhs:newvar in
       Nfa.intersect a b |> Nfa.project [ newvar ]
     | _ ->
       let newvar = max (max res lhs) rhs + 1 in
       let a = helper ~res:newvar ~lhs:(lhs - 1) ~rhs in
-      let b = add ~sum:res ~lhs:newvar ~rhs in
+      let b = add ~res ~lhs:newvar ~rhs in
       Nfa.intersect a b |> Nfa.project [ newvar ]
   in
   helper ~res ~lhs ~rhs |> Nfa.minimize
+;;
+
+let bvand ~lhs ~rhs ~res =
+  Nfa.create_nfa
+    ~transitions:[ 0, 0b000, 0; 0, 0b001, 0; 0, 0b010, 0; 0, 0b111, 0 ]
+    ~start:[ 0 ]
+    ~final:[ 0 ]
+    ~vars:[ res; rhs; lhs ]
+    ~deg:((max lhs rhs |> max res) + 1)
+;;
+
+let bvor ~lhs ~rhs ~res =
+  Nfa.create_nfa
+    ~transitions:[ 0, 0b000, 0; 0, 0b101, 0; 0, 0b110, 0; 0, 0b111, 0 ]
+    ~start:[ 0 ]
+    ~final:[ 0 ]
+    ~vars:[ res; rhs; lhs ]
+    ~deg:((max lhs rhs |> max res) + 1)
+;;
+
+let bvxor ~lhs ~rhs ~res =
+  Nfa.create_nfa
+    ~transitions:[ 0, 0b000, 0; 0, 0b101, 0; 0, 0b110, 0; 0, 0b011, 0 ]
+    ~start:[ 0 ]
+    ~final:[ 0 ]
+    ~vars:[ res; rhs; lhs ]
+    ~deg:((max lhs rhs |> max res) + 1)
 ;;
