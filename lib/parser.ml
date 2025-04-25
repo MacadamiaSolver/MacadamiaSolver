@@ -165,8 +165,7 @@ let stmt =
   match kw with
   | "eval" -> lift Ast.eval formula
   | "evalm" -> lift Ast.evalm formula
-  | "evalsemenov" -> lift Ast.evalsemenov formula
-  | "evalsemenovm" -> lift Ast.evalsemenov formula
+  | "evalsemenovm" -> lift Ast.eval formula (* stub *)
   | "let" -> lift3 Ast.def ident (many ident) (token (char '=') *> formula)
   | "letr" ->
     lift2

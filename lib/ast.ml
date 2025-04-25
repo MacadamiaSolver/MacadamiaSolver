@@ -37,7 +37,6 @@ type stmt =
   | Defr of string * Regex.t
   | Eval of formula
   | Evalm of formula
-  | EvalSemenov of formula
   | Dump of formula
   | Parse of formula
   | List

@@ -103,7 +103,7 @@ Example usages:
 > eval AxAyAz x + y = z & even(x) & even(y) -> even(z)
   sat
 
-> evalsemenov 2**x = 2**y + 2**z + 7
+> eval ExEyEz 2**x = 2**y + 2**z + 7
   sat
 ```
 

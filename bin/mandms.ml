@@ -31,7 +31,7 @@ Prove Frobenious coin problem using the solver in PrA:
 Or check out existential Semenov arithmetic allowing 2**x as a functional
 symbol:
 
-    > evalsemenov 2**x = x + 3
+    > eval Ex 2**x = x + 3
 
 You might define your own predicates as follows:
 
@@ -70,11 +70,6 @@ let exec line = function
           Map.iteri ~f:(fun ~key:k ~data:v -> Format.printf "%s = %d; " k v) model;
           Format.printf "\n%!"
         | None -> Format.printf "no model\n\n%!")
-     | Error msg -> Format.printf "Error: %s\n\n%!" msg)
-  | Ast.EvalSemenov f ->
-    let res = Solver.proof_semenov f in
-    (match res with
-     | Ok res -> Format.printf "Result: %b\n\n%!" res
      | Error msg -> Format.printf "Error: %s\n\n%!" msg)
   | Ast.Dump f ->
     (match Solver.dump f with
