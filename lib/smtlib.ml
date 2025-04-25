@@ -680,11 +680,16 @@ let rec to_formula = function
      | "=" ->
        (match top2 Ast.eq with
         | Ok r -> r |> return
-        | Error _ ->
+        | Error msg1 ->
           (match cf Ast.mand with
            | Ok r -> r |> return
-           | Error _ ->
-             "'=' expected all arguments to be formulas or terms" |> Result.error))
+           | Error msg2 ->
+             Format.sprintf
+               "'=' expected all arguments to be formulas or terms; if you meant term \
+                the problem is '%s'; if you meant formulas the problem is '%s'"
+               msg1
+               msg2
+             |> fail))
      | "<=" -> top2 Ast.leq
      | ">=" -> top2 Ast.geq
      | "<" -> top2 Ast.lt
