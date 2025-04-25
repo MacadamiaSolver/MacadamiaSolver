@@ -27,17 +27,15 @@ let run { asserts; vars; logic; _ } =
        |> (fun f ->
        Debug.printfln "Formula to proof: %a" Ast.pp_formula f;
        f)
-       |> Solver.proof_semenov
-       |> Result.get_ok
+       |> Solver.proof
      | _ ->
        List.fold_left Ast.mand h tl
        |> (fun f -> Ast.exists vars f)
        |> (fun f ->
        Debug.printfln "Formula to proof: %a" Ast.pp_formula f;
        f)
-       |> Solver.proof
-       |> Result.get_ok)
-  | [] -> true
+       |> Solver.proof)
+  | [] -> true |> return
 ;;
 
 let getmodel { asserts; vars; logic; _ } =
@@ -58,7 +56,9 @@ let command s = function
   | Smtlib.DeclareFun (f, _sorts, _sort) -> f |> add_var s |> Result.ok
   | Smtlib.CheckSat ->
     let res = run s in
-    if res then Format.printf "sat%!\n" else Format.printf "unsat%!\n";
+    (match res with
+     | Result.Ok res -> if res then Format.printf "sat%!\n" else Format.printf "unsat%!\n"
+     | Result.Error err -> Format.printf "unable to evaluate expression: %s" err);
     s |> Result.ok
   | Smtlib.GetModel ->
     (match getmodel s with
@@ -92,5 +92,7 @@ let read_whole_file filename =
 let () =
   let filename = Array.get Sys.argv 1 in
   let s = read_whole_file filename |> Smtlib.parse |> Result.get_ok in
-  script init s |> Result.get_ok
+  match script init s with
+  | Result.Ok () -> ()
+  | Result.Error err -> Format.printf "error during script evaluation: %s\n" err
 ;;
