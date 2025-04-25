@@ -324,7 +324,7 @@ let command =
     | "get-assignment" -> return getassignment
     | "get-value" -> many1 (term <* whitespace) >>| getvalue
     | "exit" -> return exit
-    | _ -> fail "unknown command"
+    | _ as command -> Format.sprintf "unknown SMT-lib command %s" command |> fail
   in
   parens result'
 ;;
@@ -557,6 +557,7 @@ let%expect_test "check-sat" =
     Smtlib.Exit
     |}]
 ;;
+
 (*
    (set-info :smt-lib-version 2.6)
     (set-info :source |
@@ -571,3 +572,186 @@ let%expect_test "check-sat" =
     (set-info :status sat)
     (declare-fun P () Int)
 *)
+
+let ( let* ) = Result.bind
+let return = Result.ok
+let fail = Result.error
+
+let rec to_term = function
+  | Apply (f, _, ts) ->
+    let arg n =
+      let* arg =
+        List.nth_opt ts n
+        |> Option.to_result ~none:(Format.sprintf "missing %d argument" n)
+      in
+      arg |> to_term
+    in
+    let ct ast =
+      match ts with
+      | t :: tl ->
+        let* t = to_term t in
+        List.fold_left
+          (fun acc t ->
+             let* f = to_term t in
+             let* acc = acc in
+             ast acc f |> return)
+          (t |> return)
+          tl
+      | [] -> failwith "expected at least 1 argument"
+    in
+    let tiop ast =
+      let* t1 = arg 0 in
+      let* t2 = arg 1 in
+      match t1, t2 with
+      | Ast.Const d, _ -> ast d t2 |> return
+      | _, Ast.Const d -> ast d t1 |> return
+      | _ -> "this operator is only supported between a constant and a term" |> fail
+    in
+    (match f with
+     | "+" -> ct Ast.add
+     | "exp" ->
+       let* t1 = arg 0 in
+       let* t2 = arg 1 in
+       (match t1, t2 with
+        | Ast.Const d, _ ->
+          if d = 2 then Ast.pow d t2 |> return else fail "only base two is supported"
+        | _ -> fail "only exponents in 2**<var> syntax are supported")
+     | "*" -> tiop Ast.mul
+     | _ -> Ast.var f |> return)
+  | SpecConstant c ->
+    (match c with
+     | Numeric d -> Ast.const d |> return
+     | _ -> "unknown constant type" |> Result.error)
+  | _ as t -> Format.asprintf "expected term, found %a" pp_term t |> fail
+;;
+
+let rec to_formula = function
+  | Forall (vars, t) ->
+    let vars = vars |> List.map fst in
+    let* f = to_formula t in
+    Ast.any vars f |> return
+  | Exists (vars, t) ->
+    let vars = vars |> List.map fst in
+    let* f = to_formula t in
+    Ast.exists vars f |> return
+  | Apply (f, _, ts) ->
+    let arg n =
+      List.nth_opt ts n |> Option.to_result ~none:(Format.sprintf "missing %d argument" n)
+    in
+    let argf n =
+      let* f = arg n in
+      f |> to_formula
+    in
+    let argt n =
+      let* t = arg n in
+      t |> to_term
+    in
+    let fop1 ast =
+      assert (List.length ts = 1);
+      let* f1 = argf 0 in
+      ast f1 |> return
+    in
+    let fop2 ast =
+      assert (List.length ts = 2);
+      let* f1 = argf 0 in
+      let* f2 = argf 1 in
+      ast f1 f2 |> return
+    in
+    let top2 ast =
+      assert (List.length ts = 2);
+      let* t1 = argt 0 in
+      let* t2 = argt 1 in
+      ast t1 t2 |> return
+    in
+    let cf ast =
+      match ts with
+      | t :: tl ->
+        let* t = to_formula t in
+        List.fold_left
+          (fun acc t ->
+             let* f = to_formula t in
+             let* acc = acc in
+             ast acc f |> return)
+          (t |> return)
+          tl
+      | [] -> fail "expected at least 1 argument"
+    in
+    (match f with
+     | "=" ->
+       (match top2 Ast.eq with
+        | Ok r -> r |> return
+        | Error _ ->
+          (match cf Ast.mand with
+           | Ok r -> r |> return
+           | Error _ ->
+             "'=' expected all arguments to be formulas or terms" |> Result.error))
+     | "<=" -> top2 Ast.leq
+     | ">=" -> top2 Ast.geq
+     | "<" -> top2 Ast.lt
+     | ">" -> top2 Ast.gt
+     | "not" -> fop1 Ast.mnot
+     | "and" -> cf Ast.mand
+     | "or" -> cf Ast.mor
+     | "=>" -> fop2 Ast.mimpl
+     | _ as func -> Format.sprintf "unimplemented SMT-lib function: %s" func |> fail)
+    (* TODO: string is ignored *)
+  | _ as term ->
+    Format.asprintf "unimplemented SMT-lib construction: %a" pp_term term |> fail
+;;
+
+let%expect_test "Basic to term" =
+  parse_string ~consume:Prefix term "(+ (* x0 7) (* x1 11) (* x5 15))"
+  |> Result.get_ok
+  |> to_term
+  |> Result.get_ok
+  |> Format.printf "%a@." Ast.pp_term;
+  [%expect {| (((7 * x0) + (11 * x1)) + (15 * x5)) |}]
+;;
+
+let%expect_test "Exponent to term" =
+  parse_string ~consume:Prefix term "(+ (exp 2 x) 15 y)"
+  |> Result.get_ok
+  |> to_term
+  |> Result.get_ok
+  |> Format.printf "%a@." Ast.pp_term;
+  [%expect {| (((2 ** x) + 15) + y) |}]
+;;
+
+let%expect_test "Fail wrong base" =
+  parse_string ~consume:Prefix term "(exp 3 x)"
+  |> Result.get_ok
+  |> to_term
+  |> Result.get_error
+  |> Format.printf "%s";
+  [%expect {| only base two is supported |}]
+;;
+
+let%expect_test "Fail non-integer base" =
+  parse_string ~consume:Prefix term "(exp x 3)"
+  |> Result.get_ok
+  |> to_term
+  |> Result.get_error
+  |> Format.printf "%s";
+  [%expect {| only exponents in 2**<var> syntax are supported |}]
+;;
+
+let%expect_test "Basic formula" =
+  parse_string
+    ~consume:Prefix
+    term
+    {|(forall ((x0 Int) (x1 Int)) (=> (and (<= 0 x0) (<= 0 x1)) (not (= (+ (* x0 7) (* x1 11)) R))))|}
+  |> Result.get_ok
+  |> to_formula
+  |> Result.get_ok
+  |> Format.printf "%a" Ast.pp_formula;
+  [%expect {| (Ax0 x1 (((0 <= x0) & (0 <= x1)) -> (~ (((7 * x0) + (11 * x1)) = R)))) |}]
+;;
+
+let%expect_test "Unknown function" =
+  parse_string ~consume:Prefix term {|(strange_func x0 x1)|}
+  |> Result.get_ok
+  |> to_formula
+  |> Result.get_error
+  |> Format.printf "%s";
+  [%expect {| unimplemented SMT-lib function: strange_func |}]
+;;
