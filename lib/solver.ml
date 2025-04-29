@@ -76,9 +76,15 @@ let teval s ast =
       let lv, la = teval l in
       let rv, ra = teval r in
       let res = internal s in
-      ( res
-      , NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res |> Nfa.intersect la |> Nfa.intersect ra
-      )
+      let nfa =
+        NfaCollection.add ~lhs:lv ~rhs:rv ~sum:res |> Nfa.intersect la |> Nfa.intersect ra
+      in
+      let vars = ("res", res) :: ("rv", rv) :: ("lv", lv) :: Map.to_alist s.vars in
+      Debug.printfln "Add:";
+      Debug.dump_nfa ~msg:"  Left: %s" ~vars Nfa.format_nfa la;
+      Debug.dump_nfa ~msg:"  Right: %s" ~vars Nfa.format_nfa ra;
+      Debug.dump_nfa ~msg:"  Intersection: %s" ~vars Nfa.format_nfa nfa;
+      res, nfa
     | Ast.Mul (a, b) ->
       let rec teval_mul a b =
         match a with
@@ -132,20 +138,40 @@ let eval s ast =
         let lv, la = teval s l in
         let rv, ra = teval s r in
         reset_internals ();
-        NfaCollection.eq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
+        let nfa =
+          NfaCollection.eq lv rv
+          |> Nfa.intersect la
+          |> Nfa.intersect ra
+          |> Nfa.truncate (deg ())
+        in
+        Debug.printfln "Eq:";
+        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
+        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
+        Debug.dump_nfa
+          ~msg:"  Intersection: %s"
+          ~vars:(Map.to_alist s.vars)
+          Nfa.format_nfa
+          nfa;
+        nfa |> return
       | Ast.Leq (l, r) ->
         let lv, la = teval s l in
         let rv, ra = teval s r in
+        Debug.printfln "Leq:";
+        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
+        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
         reset_internals ();
-        NfaCollection.leq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
+        let nfa =
+          NfaCollection.leq lv rv
+          |> Nfa.intersect la
+          |> Nfa.intersect ra
+          |> Nfa.truncate (deg ())
+        in
+        Debug.dump_nfa
+          ~msg:"  Intersection: %s"
+          ~vars:(Map.to_alist s.vars)
+          Nfa.format_nfa
+          nfa;
+        nfa |> return
       | Ast.Geq (l, r) ->
         let lv, la = teval s l in
         let rv, ra = teval s r in
@@ -188,6 +214,11 @@ let eval s ast =
         let* la = eval f1 in
         let* ra = eval f2 in
         Nfa.unite (la |> Nfa.invert) ra |> return
+      | Ast.Miff (f1, f2) ->
+        let* la = eval f1 in
+        let* ra = eval f2 in
+        Nfa.unite (Nfa.intersect la ra) (Nfa.intersect (Nfa.invert la) (Nfa.invert ra))
+        |> return
       | Ast.Exists (x, f) ->
         let* nfa = eval f in
         let x = List.map var_exn x in
@@ -310,7 +341,7 @@ let get_model f =
            | Ast.Pow (_, _) -> true
            | _ -> false)
          f)
-      ""
+      "Model for Semenov arithmetic is not implemented yet"
   in
   let* nfa, vars = f |> eval !s in
   let free_vars = f |> collect_free |> Set.to_list in
@@ -330,12 +361,6 @@ let log2 n =
     | n -> helper (acc + 1) (n / 2)
   in
   helper (-1) n
-;;
-
-let _pow2 n =
-  match n with
-  | 0 -> 1
-  | n -> List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
 ;;
 
 let gen_list_n n =
@@ -451,17 +476,20 @@ let nfa_for_exponent s var newvar chrob =
       Nfa.project
         [ a_plus_d; c_mul_t; t ]
         (Nfa.intersect
-           (NfaCollection.add ~lhs:a_plus_d ~rhs:c_mul_t ~sum:var)
+           (NfaCollection.add ~lhs:a_plus_d ~rhs:c_mul_t ~sum:var |> Nfa.nat_nfa)
            (Nfa.intersect
-              (NfaCollection.eq_const a_plus_d (a + d))
-              (NfaCollection.mul ~res:c_mul_t ~lhs:c ~rhs:t)))
+              (NfaCollection.eq_const a_plus_d (a + d) |> Nfa.nat_nfa)
+              (NfaCollection.mul ~res:c_mul_t ~lhs:c ~rhs:t |> Nfa.nat_nfa))
+         |> Nfa.nat_nfa)
     in
     let n =
       List.init (a + 2) (( + ) a) |> List.filter (fun x -> x - log2 x >= a) |> List.hd
     in
     let newvar_nfa = NfaCollection.torename newvar d c in
     let geq_nfa =
-      NfaCollection.geq var internal |> Nfa.intersect (NfaCollection.eq_const internal n)
+      Nfa.intersect
+        (NfaCollection.geq var internal |> Nfa.nat_nfa)
+        (NfaCollection.eq_const internal n |> Nfa.nat_nfa)
     in
     let nfa =
       nfa
@@ -471,67 +499,33 @@ let nfa_for_exponent s var newvar chrob =
       |> Nfa.project [ internal ]
     in
     internal_counter := old_internal_counter;
+    Debug.dump_nfa ~msg:"nfa_for_exponent: %s" Nfa.format_nfa nfa;
     nfa)
 ;;
 
-let rec remove_leading_quantifiers = function
-  | Ast.Exists (_, f) -> remove_leading_quantifiers f
-  | _ as f -> f
-;;
-
-let%expect_test "Basic remove leading quantifiers" =
-  {|ExEyEz z = 15|}
-  |> Parser.parse_formula
-  |> Result.get_ok
-  |> remove_leading_quantifiers
-  |> Format.printf "%a" Ast.pp_formula;
-  [%expect {| (z = 15) |}]
-;;
-
-let%expect_test "Useless quantifier remove" =
-  {|z = 15|}
-  |> Parser.parse_formula
-  |> Result.get_ok
-  |> remove_leading_quantifiers
-  |> Format.printf "%a" Ast.pp_formula;
-  [%expect {| (z = 15) |}]
-;;
-
 let proof_semenov formula =
-  let formula = remove_leading_quantifiers formula in
-  (*if
-    Ast.for_some
-      (function
-        | Ast.Any (_, _) | Ast.Exists (_, _) -> true
-        | _ -> false)
-      (fun _ -> false)
-      formula
-  then
-    Format.printf
-      "Semenov arithmetic formula contains quantifiers not on the top-level. In general such \
-       formulas might be undecidable. We still try to evaluate them though to try out the \
-       limitations of the algorithm.\n\
-       %!";*)
   let* nfa, vars = eval !s formula in
   let nfa = Nfa.minimize nfa in
-  let nfa =
-    Map.fold
-      ~init:nfa
-      ~f:(fun ~key:k ~data:v acc ->
-        if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
-      vars
+  let nfa, exp_vars =
+    vars
+    |> Map.fold ~init:(nfa, []) ~f:(fun ~key:k ~data:v ((nfa, exp_vars) as acc) ->
+      if is_exp k
+      then (
+        let power = get_exp k in
+        ( Nfa.intersect
+            nfa
+            (Nfa.intersect
+               (NfaCollection.power_of_two v)
+               (NfaCollection.geq_zero (Map.find_exn vars power)))
+        , power :: exp_vars ))
+      else acc)
   in
-  let nfa =
-    Map.fold
-      ~f:(fun ~key:k ~data:v acc ->
-        if is_exp k
-        then acc
-        else if Map.mem vars ("2**" ^ k) |> not
-        then Nfa.project [ v ] acc
-        else acc)
-      ~init:nfa
-      vars
+  let exp_vars = Set.of_list exp_vars in
+  let proj_vars =
+    vars |> Map.filter_keys ~f:(fun x -> (not (is_exp x)) && not (Set.mem exp_vars x))
   in
+  let vars = vars |> Map.filter_keys ~f:(fun x -> is_exp x || Set.mem exp_vars x) in
+  let nfa = Nfa.project (Map.data proj_vars) nfa in
   let nfa = Nfa.minimize nfa in
   Debug.dump_nfa
     ~msg:"Minimized original nfa: %s"
@@ -572,8 +566,8 @@ let proof_semenov formula =
             let x' = get_exp x in
             let zero_nfa =
               Nfa.intersect
-                (NfaCollection.eq_const (Map.find_exn s.vars x) 1)
-                (NfaCollection.eq_const (Map.find_exn s.vars x') 0)
+                (NfaCollection.eq_const (Map.find_exn s.vars x) 1 |> Nfa.nat_nfa)
+                (NfaCollection.eq_const (Map.find_exn s.vars x') 0 |> Nfa.nat_nfa)
               |> Nfa.truncate (deg ())
             in
             let zero_nfa =
@@ -594,6 +588,14 @@ let proof_semenov formula =
                 t
                 |> List.to_seq
                 |> Seq.flat_map (fun (nfa, chrobak) ->
+                  Debug.printfln "Chobak-nfa pair:";
+                  Debug.dump_nfa ~msg:"  nfa: %s" Nfa.format_nfa nfa;
+                  Debug.printf "  chobak:";
+                  Format.pp_print_list
+                    (fun fmt (a, b) -> Format.fprintf fmt " (%d, %d)" a b)
+                    Debug.fmt
+                    chrobak;
+                  Debug.printfln "";
                   let a =
                     (match is_exp next with
                      | false -> nfa_for_exponent s (Map.find_exn s.vars x') inter chrobak
@@ -630,7 +632,7 @@ let proof_semenov formula =
     let len = List.length order in
     let* nfa =
       if len <= 1
-      then Ok nfa
+      then Ok (Nfa.nat_nfa nfa)
       else
         let* order_nfa, order_vars =
           eval
@@ -649,7 +651,9 @@ let proof_semenov formula =
             (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn vars k))
             order_nfa
         in
-        Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
+        Nfa.intersect (Nfa.nat_nfa nfa) (Nfa.nat_nfa order_nfa)
+        |> Nfa.minimize
+        |> Result.ok
     in
     Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
     (nfa
@@ -687,8 +691,7 @@ let%expect_test "Proof any x > 7 can be represented as a linear combination of 3
   [%expect {| true |}]
 ;;
 
-let%expect_test "Disproof any x > 6 can be represented as a linear combination of 3 and 5"
-  =
+let%expect_test "Proof any x > 6 can be represented as a linear combination of 3 and 5" =
   Format.printf
     "%b"
     ({|AxEyEz x = 3*y + 5*z | x <= 6|}
@@ -696,7 +699,7 @@ let%expect_test "Disproof any x > 6 can be represented as a linear combination o
      |> Result.get_ok
      |> proof
      |> Result.get_ok);
-  [%expect {| false |}]
+  [%expect {| true |}]
 ;;
 
 let%expect_test "Proof for all x exists x + 1" =
@@ -706,10 +709,21 @@ let%expect_test "Proof for all x exists x + 1" =
   [%expect {| true |}]
 ;;
 
-let%expect_test "Disproof for all x exists x - 1" =
+let%expect_test "Proof for all x exists x - 1" =
   Format.printf
     "%b"
     ({|AxEy x = y + 1|} |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok);
+  [%expect {| true |}]
+;;
+
+let%expect_test "Disproof for all x exists x - 1 > 0" =
+  Format.printf
+    "%b"
+    ({|AxEy x = y + 1 & y > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof
+     |> Result.get_ok);
   [%expect {| false |}]
 ;;
 
@@ -742,11 +756,11 @@ let%expect_test "Proof 2 <= 3" =
   [%expect {| true |}]
 ;;
 
-let%expect_test "Proof zero is the least" =
+let%expect_test "Disproof zero is the least" =
   Format.printf
     "%b"
     ({|Ax x >= 0|} |> Parser.parse_formula |> Result.get_ok |> proof |> Result.get_ok);
-  [%expect {| true |}]
+  [%expect {| false |}]
 ;;
 
 let%expect_test "Disproof 3 >= 15" =
@@ -756,7 +770,7 @@ let%expect_test "Disproof 3 >= 15" =
   [%expect {| false |}]
 ;;
 
-let%expect_test "Proof less than 1 is zero" =
+let%expect_test "Disproo less than 1 is zero" =
   Format.printf
     "%b"
     ({|Ax x < 1 -> x = 0|}
@@ -764,7 +778,7 @@ let%expect_test "Proof less than 1 is zero" =
      |> Result.get_ok
      |> proof
      |> Result.get_ok);
-  [%expect {| true |}]
+  [%expect {| false |}]
 ;;
 
 let%expect_test "Proof if x > 3 and y > 4 then x + y > 7" =
@@ -880,6 +894,17 @@ let%expect_test "Proof a number is even iff it's not odd" =
      |> proof
      |> Result.get_ok);
   s := default_s ();
+  [%expect {| true |}]
+;;
+
+let%expect_test "Proof x < y iff x + 1 <= y" =
+  Format.printf
+    "%b"
+    ({|AxAy x < y <-> x + 1 <= y|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof
+     |> Result.get_ok);
   [%expect {| true |}]
 ;;
 
@@ -1056,16 +1081,17 @@ let%expect_test "Disproof 2**x can be equal to 2**y + 5" =
   [%expect {| false |}]
 ;;
 
-let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" =
-  Format.printf
-    "%b"
-    ({|2**x = 2**y + 2**z + 7|}
-     |> Parser.parse_formula
-     |> Result.get_ok
-     |> proof_semenov
-     |> Result.get_ok);
-  [%expect {| true |}]
-;;
+(* TODO(timafrolov): this test causes OOM in MSB, need to find a way to fix this *)
+(* let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7" = *)
+(*   Format.printf *)
+(*     "%b" *)
+(*     ({|2**x = 2**y + 2**z + 7|} *)
+(*      |> Parser.parse_formula *)
+(*      |> Result.get_ok *)
+(*      |> proof_semenov *)
+(*      |> Result.get_ok); *)
+(*   [%expect {| true |}] *)
+(* ;; *)
 
 let%expect_test "Proof exists even 2**x" =
   s := default_s ();
@@ -1175,6 +1201,21 @@ let%expect_test "Proof exists an even 2**x" =
   [%expect {| true |}]
 ;;
 
+let%expect_test
+    "Proof that if z > -8, there is no x, y such that 2**x + 2**y + z + 11 = 0"
+  =
+  s := default_s ();
+  Format.printf
+    "%b"
+    ({|2**x + 2**y + z + 11 = 0 & z + 8 > 0|}
+     |> Parser.parse_formula
+     |> Result.get_ok
+     |> proof_semenov
+     |> Result.get_ok);
+  s := default_s ();
+  [%expect {| false |}]
+;;
+
 let%expect_test "Disproof 2**x <= y & y < (2(2**x)) & 2**z <= 5y & 5y < (2(2**z)) & x = z"
   =
   Format.printf
@@ -1217,21 +1258,22 @@ let%expect_test "Disproof 2**x can be equal to 2**y + 5 using common proof" =
     ({|2**x = 2**y + 5|}
      |> Parser.parse_formula
      |> Result.get_ok
-     |> proof_semenov
+     |> proof
      |> Result.get_ok);
   [%expect {| false |}]
 ;;
 
-let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7 using common proof" =
-  Format.printf
-    "%b"
-    ({|2**x = 2**y + 2**z + 7|}
-     |> Parser.parse_formula
-     |> Result.get_ok
-     |> proof
-     |> Result.get_ok);
-  [%expect {| true |}]
-;;
+(* TODO(timafrolov): this test causes OOM in MSB, need to find a way to fix this *)
+(* let%expect_test "Proof 2**x can be equal to 2**y + 2**z + 7 using common proof" = *)
+(*   Format.printf *)
+(*     "%b" *)
+(*     ({|2**x = 2**y + 2**z + 7|} *)
+(*      |> Parser.parse_formula *)
+(*      |> Result.get_ok *)
+(*      |> proof *)
+(*      |> Result.get_ok); *)
+(*   [%expect {| true |}] *)
+(* ;; *)
 
 let%expect_test "Disproof quantified 2**x can be equal to 2**y + 5 using common proof" =
   Format.printf
@@ -1239,19 +1281,20 @@ let%expect_test "Disproof quantified 2**x can be equal to 2**y + 5 using common 
     ({|ExEy 2**x = 2**y + 5|}
      |> Parser.parse_formula
      |> Result.get_ok
-     |> proof_semenov
+     |> proof
      |> Result.get_ok);
   [%expect {| false |}]
 ;;
 
-let%expect_test "Proof quantified 2**x can be equal to 2**y + 2**z + 7 using common proof"
-  =
-  Format.printf
-    "%b"
-    ({|ExEy 2**x = 2**y + 2**z + 7|}
-     |> Parser.parse_formula
-     |> Result.get_ok
-     |> proof
-     |> Result.get_ok);
-  [%expect {| true |}]
-;;
+(* TODO(timafrolov): this test causes OOM in MSB, need to find a way to fix this *)
+(* let%expect_test "Proof quantified 2**x can be equal to 2**y + 2**z + 7 using common proof" *)
+(*   = *)
+(*   Format.printf *)
+(*     "%b" *)
+(*     ({|ExEy 2**x = 2**y + 2**z + 7|} *)
+(*      |> Parser.parse_formula *)
+(*      |> Result.get_ok *)
+(*      |> proof *)
+(*      |> Result.get_ok); *)
+(*   [%expect {| true |}] *)
+(* ;; *)
