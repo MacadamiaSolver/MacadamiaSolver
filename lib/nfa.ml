@@ -3,6 +3,7 @@ open Utils
 module Set = Base.Set.Poly
 module Map = Base.Map.Poly
 module Sequence = Base.Sequence
+module Hashtbl = Base.Hashtbl.Poly
 
 type deg = int
 type state = int
@@ -627,25 +628,25 @@ let reverse nfa =
 let to_dfa nfa =
   let counter = ref 0 in
   let length = length nfa in
-  let visited = Hashtbl.create length in
+  let visited = Hashtbl.create ~size:length () in
   let is_visited qs = Hashtbl.mem visited qs in
   let visit qs =
     if is_visited qs |> not
     then (
       let q = !counter in
       counter := !counter + 1;
-      Hashtbl.replace visited qs q)
+      Hashtbl.set visited ~key:qs ~data:q)
     else ()
   in
-  let processed = Hashtbl.create length in
+  let processed = Hashtbl.create ~size:length () in
   let is_processed qs = Hashtbl.mem processed qs in
   let process qs =
-    if is_processed qs |> not then Hashtbl.replace processed qs true else ()
+    if is_processed qs |> not then Hashtbl.set processed ~key:qs ~data:true else ()
   in
-  let q qs = Hashtbl.find visited qs in
-  let rec aux transitions final queue =
+  let q qs = Hashtbl.find_exn visited qs in
+  let rec aux transitions final queue cont =
     if Queue.is_empty queue
-    then transitions, final
+    then cont (transitions, final)
     else (
       let qs = Queue.pop queue in
       if is_processed qs |> not
@@ -697,13 +698,13 @@ let to_dfa nfa =
             []
             variations
         in
-        let delta', final' = aux transitions final queue in
-        delta :: delta', final')
-      else aux transitions final queue)
+        aux transitions final queue (fun (delta', final') ->
+          cont (delta :: delta', final')))
+      else aux transitions final queue cont)
   in
   let queue = Queue.create () in
   Queue.add nfa.start queue;
-  let transitions, final = aux [] Set.empty queue in
+  let transitions, final = aux [] Set.empty queue Fun.id in
   let transitions = Array.of_list transitions in
   { final; start = Set.singleton 0; transitions; deg = nfa.deg; is_dfa = true }
 ;;
