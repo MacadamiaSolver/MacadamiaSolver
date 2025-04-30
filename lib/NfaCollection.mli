@@ -7,6 +7,8 @@ val n : unit -> Nfa.t
 val z : unit -> Nfa.t
 val leq : varpos -> varpos -> Nfa.t
 val geq : varpos -> varpos -> Nfa.t
+val geq_zero : varpos -> Nfa.t
+val minus : varpos -> varpos -> Nfa.t
 val lt : varpos -> varpos -> Nfa.t
 val gt : varpos -> varpos -> Nfa.t
 val torename : varpos -> int -> int -> Nfa.t

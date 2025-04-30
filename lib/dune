@@ -10,6 +10,7 @@
   Smtlib
   Solver
   Utils
+  Ir
   Debug)
  (libraries base angstrom bitv unix)
  (inline_tests)
