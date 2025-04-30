@@ -132,102 +132,71 @@ let eval s ast =
   let rec eval ast =
     let nfa =
       match ast with
-      | Ast.True -> NfaCollection.n () |> return
-      | Ast.False -> NfaCollection.z () |> return
-      | Ast.Eq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        let nfa =
-          NfaCollection.eq lv rv
-          |> Nfa.intersect la
-          |> Nfa.intersect ra
-          |> Nfa.truncate (deg ())
+      | Ir.True -> NfaCollection.n () |> return
+      | Ir.False -> NfaCollection.z () |> return
+      | Ir.Eq (Sum a, b) ->
+        let variants = failwith "" in
+        let mul _ _ = failwith "" in
+        let rec helper q l e =
+          match l with
+          | v :: tl ->
+            let vs =
+              variants
+              |> List.filter_map (fun d ->
+                let v' = v - List.fold_left ( + ) 0 (mul a d) in
+                if v' mod 2 = 0 then Some (v' / 2, d) else None)
+            in
+            helper
+              (Set.union q (Set.of_list (vs |> List.map fst)))
+              tl
+              ((vs |> List.map (fun (v', d) -> v', d, v)) @ e)
+          | [] ->
+            let start = failwith "" in
+            let e =
+              (variants
+               |> List.filter_map (fun d ->
+                 let v = -mul a d in
+                 if Set.mem q v then Some (start, d, v) else None))
+              @ e
+            in
+            Nfa.create_nfa
+              ~transitions:e
+              ~start:[ start ]
+              ~final:[ b ]
+              ~vars:(failwith "")
+              ~deg:(failwith "")
         in
-        Debug.printfln "Eq:";
-        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
-        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
-        Debug.dump_nfa
-          ~msg:"  Intersection: %s"
-          ~vars:(Map.to_alist s.vars)
-          Nfa.format_nfa
-          nfa;
-        nfa |> return
-      | Ast.Leq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        Debug.printfln "Leq:";
-        Debug.dump_nfa ~msg:"  Left: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa la;
-        Debug.dump_nfa ~msg:"  Right: %s" ~vars:(Map.to_alist s.vars) Nfa.format_nfa ra;
-        reset_internals ();
-        let nfa =
-          NfaCollection.leq lv rv
-          |> Nfa.intersect la
-          |> Nfa.intersect ra
-          |> Nfa.truncate (deg ())
-        in
-        Debug.dump_nfa
-          ~msg:"  Intersection: %s"
-          ~vars:(Map.to_alist s.vars)
-          Nfa.format_nfa
-          nfa;
-        nfa |> return
-      | Ast.Geq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.geq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Lt (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.lt lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Gt (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.gt lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Mnot f ->
+        helper (Set.singleton b) [ b ] [] |> return
+      | Ir.Leq (_, _) -> failwith "TODO"
+      | Ir.Mnot f ->
         let* nfa = eval f in
         nfa |> Nfa.invert |> Nfa.minimize |> return
-      | Ast.Mand (f1, f2) ->
+      | Ir.Mand (f1, f2) ->
         let* la = eval f1 in
         let* ra = eval f2 in
         Nfa.intersect la ra |> return
-      | Ast.Mor (f1, f2) ->
+      | Ir.Mor (f1, f2) ->
         let* la = eval f1 in
         let* ra = eval f2 in
         Nfa.unite la ra |> return
-      | Ast.Mimpl (f1, f2) ->
+      | Ir.Mimpl (f1, f2) ->
         let* la = eval f1 in
         let* ra = eval f2 in
         Nfa.unite (la |> Nfa.invert) ra |> return
-      | Ast.Miff (f1, f2) ->
+      | Ir.Miff (f1, f2) ->
         let* la = eval f1 in
         let* ra = eval f2 in
         Nfa.unite (Nfa.intersect la ra) (Nfa.intersect (Nfa.invert la) (Nfa.invert ra))
         |> return
-      | Ast.Exists (x, f) ->
+      | Ir.Exists (x, f) ->
         let* nfa = eval f in
         let x = List.map var_exn x in
         nfa |> Nfa.project x |> Nfa.minimize |> return
-      | Ast.Any (x, f) ->
+      | Ir.Any (x, f) ->
         let* nfa = eval f in
         let x = List.map var_exn x in
         nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> Nfa.minimize |> return
-      | Ast.Pred (name, args) ->
+      | Ir.Pred (name, args) ->
         (match
            List.find_opt (fun (pred_name, _, _, _, _) -> pred_name = name) s.preds
          with
@@ -267,7 +236,6 @@ let eval s ast =
               let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
               nfa |> Nfa.truncate (deg ()) |> return
             | None -> Format.sprintf "unknown predicate %s" name |> fail))
-      | _ -> failwith "unimplemented"
     in
     nfa
   in
