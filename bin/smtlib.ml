@@ -64,16 +64,18 @@ let command ({ vars; _ } as s) = function
         | Some model ->
           Map.iteri
             ~f:(fun ~key:varname ~data:value ->
-              let var = List.find (fun var -> var.name = varname) vars in
-              if String.starts_with ~prefix:"BitVec" var.sort
-              then
-                Format.printf
-                  "%s = 0b%a (%d) "
-                  var.name
-                  Bitv.M.print
-                  (Bitv.of_int_s value |> Bitv.to_list |> Bitv.of_list)
-                  value
-              else Format.printf "%s = %d  " var.name value)
+              match List.find_opt (fun var -> var.name = varname) vars with
+              | None -> ()
+              | Some var ->
+                if String.starts_with ~prefix:"BitVec" var.sort
+                then
+                  Format.printf
+                    "%s = 0b%a (%d) "
+                    var.name
+                    Bitv.M.print
+                    (Bitv.of_int_s value |> Bitv.to_list |> Bitv.of_list)
+                    value
+                else Format.printf "%s = %d  " var.name value)
             model;
           Format.printf "\n%!"
         | None -> Format.printf "No model\n%!")

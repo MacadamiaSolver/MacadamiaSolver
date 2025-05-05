@@ -313,29 +313,6 @@ let predr name re =
   return ()
 ;;
 
-let get_model f =
-  let* () =
-    throw_if
-      (Ast.for_some
-         (fun _ -> false)
-         (function
-           | Ast.Pow (_, _) -> true
-           | _ -> false)
-         f)
-      "Semenov arithmetic doesn't support getting a model yet"
-  in
-  let* nfa, vars = f |> eval !s in
-  let free_vars = f |> collect_free |> Set.to_list in
-  let model = Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars) in
-  match model with
-  | Some model ->
-    List.mapi (fun i v -> List.nth free_vars i, v) model
-    |> Map.of_alist_exn
-    |> Option.some
-    |> return
-  | None -> Option.none |> return
-;;
-
 let log2 n =
   let rec helper acc = function
     | 0 -> acc
@@ -344,11 +321,7 @@ let log2 n =
   helper (-1) n
 ;;
 
-let _pow2 n =
-  match n with
-  | 0 -> 1
-  | n -> List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
-;;
+let pow2 n = List.init n (Fun.const 2) |> List.fold_left ( * ) 1
 
 let gen_list_n n =
   let rec helper acc = function
@@ -515,9 +488,12 @@ let project_exp s nfa x next =
   if is_exp next
   then
     nfa
-    |> Nfa.get_chrobaks_sub_nfas ~res:(get_deg x) ~temp:(get_deg next)
+    |> Nfa.get_chrobaks_sub_nfas
+         ~res:(get_deg x)
+         ~temp:(get_deg next)
+         ~vars:(Map.data s.vars)
     |> List.to_seq
-    |> Seq.flat_map (fun (nfa, chrobak) ->
+    |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
       (let y = get_exp next in
        Debug.dump_nfa
          ~msg:"close to nfa_for_exponent2 - intersection nfa: %s"
@@ -525,56 +501,59 @@ let project_exp s nfa x next =
          nfa;
        nfa_for_exponent2 s (get_deg x') (get_deg y) chrobak)
       |> List.map (Nfa.intersect nfa)
+      |> List.map (fun nfa -> nfa, model_part)
       |> List.to_seq)
-    |> Seq.map (Nfa.project [ get_deg x ])
   else (
+    let old_counter = !internal_counter in
     let inter = internal s in
-    nfa
-    |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
-    |> Nfa.get_chrobaks_sub_nfas ~res:(get_deg x) ~temp:inter
-    |> List.to_seq
-    |> Seq.flat_map (fun (nfa, chrobak) ->
-      nfa_for_exponent s (get_deg x') inter chrobak
-      |> List.map (Nfa.intersect nfa)
-      |> List.to_seq)
-    |> Seq.map (Nfa.project [ get_deg x; inter ]))
+    let ans =
+      nfa
+      |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
+      |> Nfa.get_chrobaks_sub_nfas ~res:(get_deg x) ~temp:inter ~vars:(Map.data s.vars)
+      |> List.to_seq
+      |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
+        nfa_for_exponent s (get_deg x') inter chrobak
+        |> List.map (Nfa.intersect nfa)
+        |> List.map (fun nfa -> nfa, model_part)
+        |> List.to_seq)
+      |> Seq.map (fun (nfa, model_part) -> Nfa.project [ inter ] nfa, model_part)
+    in
+    internal_counter := old_counter;
+    ans)
 ;;
 
-let proof_order s nfa order =
+let proof_order return project s nfa order =
   let get_deg = Map.find_exn s.vars in
-  let rec helper nfa order =
+  let rec helper nfa order model =
+    Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
     match order with
-    | [] -> nfa |> Nfa.run
-    | x :: [] -> nfa |> Nfa.project [ get_deg x ] |> Nfa.run
+    | [] -> return s nfa model
+    | x :: [] -> return s (project (get_deg x) nfa) model
     | x :: (next :: _ as tl) ->
-      Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
       if not (is_exp x)
-      then helper (Nfa.project [ get_deg x ] nfa) tl
+      then helper (project (get_deg x) nfa) tl model
       else (
-        let deg () = Map.length s.vars in
+        let deg = (Map.max_elt_exn s.vars |> snd) + 2 in
         let x' = get_exp x in
         let zero_nfa =
           Nfa.intersect
             (NfaCollection.eq_const (get_deg x) 1)
             (NfaCollection.eq_const (get_deg x') 0)
-          |> Nfa.truncate (deg ())
+          |> Nfa.truncate deg
           |> Nfa.intersect nfa
-          |> Nfa.project [ get_deg x ]
+          |> project (get_deg x)
         in
         Debug.printf "Zero nfa for %s: " x;
         Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
-        helper zero_nfa tl
-        ||
-        let old_counter = !internal_counter in
-        let result =
+        match helper zero_nfa tl model with
+        | Some _ as res -> res
+        | None ->
           project_exp s nfa x next
-          |> Seq.map (fun nfa -> helper (Nfa.minimize nfa) tl)
-          |> Seq.exists Fun.id
-        in
-        internal_counter := old_counter;
-        result)
+          |> Seq.map (fun (nfa, model_part) ->
+            helper (Nfa.minimize (project (get_deg x) nfa)) tl (model_part :: model))
+          |> Seq.find_map Fun.id)
   in
-  helper nfa order
+  helper nfa order []
 ;;
 
 let prepare_order s nfa order =
@@ -601,6 +580,18 @@ let prepare_order s nfa order =
            | [] -> failwith ""
            | h :: tl -> List.fold_left Ast.mand h tl)
       in
+      Debug.printfln
+        "order_vars: %a"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt (a, b) -> Format.fprintf fmt "%s -> %d" a b))
+        (order_vars |> Map.to_alist);
+      Debug.printfln
+        "s.vars: %a"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt (a, b) -> Format.fprintf fmt "%s -> %d" a b))
+        (s.vars |> Map.to_alist);
       let order_nfa =
         order_nfa
         |> Nfa.reenumerate
@@ -612,7 +603,7 @@ let prepare_order s nfa order =
   (order, nfa) |> return
 ;;
 
-let proof_semenov formula =
+let eval_semenov return next formula =
   let formula = remove_leading_quantifiers formula in
   (* if
     Ast.for_some
@@ -653,10 +644,10 @@ let proof_semenov formula =
     ~vars:(Map.to_alist vars)
     Nfa.format_nfa
     nfa;
-  let s = { !s with vars } in
   let powered_vars =
     Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars ("2**" ^ k)) vars
   in
+  let s = { !s with vars = powered_vars } in
   decide_order powered_vars
   |> List.to_seq
   |> Seq.map (prepare_order s nfa)
@@ -666,13 +657,79 @@ let proof_semenov formula =
       nfa
       |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
       |> Nfa.run)
-  |> Seq.map (Result.map (fun (order, nfa) -> proof_order s nfa order))
+  |> Seq.map (Result.map (fun (order, nfa) -> proof_order return next s nfa order))
   |> Seq.find (function
-    | Ok true | Error _ -> true
-    | Ok false -> false)
+    | Ok (Some _) | Error _ -> true
+    | Ok None -> false)
   |> function
   | Some x -> x
-  | None -> Ok false
+  | None -> Ok None
+;;
+
+let proof_semenov f =
+  f
+  |> eval_semenov
+       (fun _ nfa _ -> if Nfa.run nfa then Some () else None)
+       (fun x nfa -> Nfa.project [ x ] nfa)
+  |> Result.map Option.is_some
+;;
+
+let get_model_normal f =
+  let* nfa, vars = f |> eval !s in
+  let free_vars = f |> collect_free |> Set.to_list in
+  Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars)
+  |> Option.map (fun (model, _) ->
+    model |> List.mapi (fun i v -> List.nth free_vars i, v) |> Map.of_alist_exn)
+  |> return
+;;
+
+let get_model_semenov f =
+  let* res =
+    f
+    |> eval_semenov
+         (fun s nfa model ->
+            match Nfa.any_path nfa (Map.data s.vars) with
+            | Some path -> Some (s, path, model)
+            | None -> None)
+         (fun _ nfa -> nfa)
+  in
+  match res with
+  | Some (s, model, models) ->
+    let rec thing = function
+      | [] -> failwith "unreachable"
+      | [ (model, _) ] -> model
+      | (model, len1) :: (model2, len2) :: tl ->
+        ( Base.List.zip_exn model model2
+          |> List.map (fun (x, y) ->
+            Debug.printfln "x=%d,y=%d,len1=%d,len2=%d" x y len1 len2;
+            (y * pow2 len1) + x)
+        , len1 + len2 )
+        :: tl
+        |> thing
+    in
+    let map =
+      thing (model :: models)
+      |> List.mapi (fun i v -> List.nth (Map.keys s.vars) i, v)
+      |> Map.of_alist_exn
+    in
+    let map = Map.filter_keys map ~f:(fun key -> not (is_exp key)) in
+    let f =
+      f
+      |> Ast.map Fun.id (function
+        | Ast.Var x ->
+          Base.Option.value ~default:(Ast.Var x) (Map.find map x |> Option.map Ast.const)
+        | Ast.Pow (2, Ast.Const c) -> Ast.Const (pow2 c)
+        | Ast.Pow _ as t -> failwith (Format.asprintf "unimplemented: %a" Ast.pp_term t)
+        | x -> x)
+    in
+    let* model = get_model_normal f in
+    Map.merge map (Option.get model) ~f:(fun ~key:_ -> function
+      | `Left x -> Some x
+      | `Right x -> Some x
+      | `Both _ -> failwith "Should be unreachable")
+    |> Option.some
+    |> Result.ok
+  | None -> Ok None
 ;;
 
 let proof f =
@@ -692,6 +749,21 @@ let proof f =
     let* nfa, _ = f |> eval !s in
     Debug.dump_nfa ~msg:"resulting nfa: %s" Nfa.format_nfa nfa;
     Nfa.run nfa |> return)
+;;
+
+let get_model f =
+  let run_semenov =
+    Ast.for_some
+      (fun _ -> false)
+      (function
+        | Ast.Pow (_, _) -> true
+        | _ -> false)
+      f
+  in
+  let* model = if run_semenov then get_model_semenov f else get_model_normal f in
+  match model with
+  | Some model -> model |> Option.some |> return
+  | None -> Option.none |> return
 ;;
 
 let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
