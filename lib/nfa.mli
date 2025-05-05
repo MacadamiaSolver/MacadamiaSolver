@@ -23,7 +23,7 @@ val create_dfa
   -> t
 
 val run : t -> bool
-val any_path : t -> int list -> int list option
+val any_path : t -> int list -> (int list * int) option
 val intersect : t -> t -> t
 val unite : t -> t -> t
 val project : int list -> t -> t
@@ -36,4 +36,10 @@ val format_nfa : Format.formatter -> t -> unit
 val find_c_d : t -> (int, int) Map.t -> (int * int) list
 val get_exponent_sub_nfa : t -> res:int -> temp:int -> t
 val chrobak : t -> (int * int) list
-val get_chrobaks_sub_nfas : t -> res:deg -> temp:deg -> (t * (int * int) list) list
+
+val get_chrobaks_sub_nfas
+  :  t
+  -> res:deg
+  -> temp:deg
+  -> vars:int list
+  -> (t * (int * int) list * (int list * int)) list
