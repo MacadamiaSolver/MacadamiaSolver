@@ -226,7 +226,12 @@ let term =
     let complex_term' =
       let* keyword = take_while1 is_symbolchar <* whitespace in
       match keyword with
-      | "let" -> fail "unimplemented"
+      | "let" ->
+        let* bindings =
+          many1 (lift2 (fun a b -> a, b) identifier term |> parens) |> parens
+        in
+        let* term = term in
+        let' bindings term |> return
       | "exists" ->
         let* vars = many1 (sorted_var <* whitespace) |> parens in
         let* term = term in
