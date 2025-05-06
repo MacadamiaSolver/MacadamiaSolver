@@ -482,6 +482,8 @@ let%expect_test "Useless quantifier remove" =
   [%expect {| (z = 15) |}]
 ;;
 
+let filter_linear = Map.filter_keys ~f:(fun x -> not (is_exp x))
+
 let project_exp s nfa x next =
   let get_deg = Map.find_exn s.vars in
   let x' = get_exp x in
@@ -491,7 +493,7 @@ let project_exp s nfa x next =
     |> Nfa.get_chrobaks_sub_nfas
          ~res:(get_deg x)
          ~temp:(get_deg next)
-         ~vars:(Map.data s.vars)
+         ~vars:(Map.data (filter_linear s.vars))
     |> List.to_seq
     |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
       (let y = get_exp next in
@@ -509,7 +511,10 @@ let project_exp s nfa x next =
     let ans =
       nfa
       |> Nfa.intersect (NfaCollection.torename2 (get_deg x') inter)
-      |> Nfa.get_chrobaks_sub_nfas ~res:(get_deg x) ~temp:inter ~vars:(Map.data s.vars)
+      |> Nfa.get_chrobaks_sub_nfas
+           ~res:(get_deg x)
+           ~temp:inter
+           ~vars:(Map.data (filter_linear s.vars))
       |> List.to_seq
       |> Seq.flat_map (fun (nfa, chrobak, model_part) ->
         nfa_for_exponent s (get_deg x') inter chrobak
@@ -528,10 +533,10 @@ let proof_order return project s nfa order =
     Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
     match order with
     | [] -> return s nfa model
-    | x :: [] -> return s (project (get_deg x) nfa) model
+    | x :: [] -> return s (project s x nfa) model
     | x :: (next :: _ as tl) ->
       if not (is_exp x)
-      then helper (project (get_deg x) nfa) tl model
+      then helper (project s x nfa) tl model
       else (
         let deg = (Map.max_elt_exn s.vars |> snd) + 2 in
         let x' = get_exp x in
@@ -541,7 +546,7 @@ let proof_order return project s nfa order =
             (NfaCollection.eq_const (get_deg x') 0)
           |> Nfa.truncate deg
           |> Nfa.intersect nfa
-          |> project (get_deg x)
+          |> project s x
         in
         Debug.printf "Zero nfa for %s: " x;
         Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
@@ -550,7 +555,7 @@ let proof_order return project s nfa order =
         | None ->
           project_exp s nfa x next
           |> Seq.map (fun (nfa, model_part) ->
-            helper (Nfa.minimize (project (get_deg x) nfa)) tl (model_part :: model))
+            helper (Nfa.minimize (project s x nfa)) tl (model_part :: model))
           |> Seq.find_map Fun.id)
   in
   helper nfa order []
@@ -670,7 +675,7 @@ let proof_semenov f =
   f
   |> eval_semenov
        (fun _ nfa _ -> if Nfa.run nfa then Some () else None)
-       (fun x nfa -> Nfa.project [ x ] nfa)
+       (fun s x nfa -> Nfa.project [ Map.find_exn s.vars x ] nfa)
   |> Result.map Option.is_some
 ;;
 
@@ -688,10 +693,11 @@ let get_model_semenov f =
     f
     |> eval_semenov
          (fun s nfa model ->
-            match Nfa.any_path nfa (Map.data s.vars) with
+            match Nfa.any_path nfa (Map.data (filter_linear s.vars)) with
             | Some path -> Some (s, path, model)
             | None -> None)
-         (fun _ nfa -> nfa)
+         (fun s x nfa ->
+            if is_exp x then Nfa.project [ Map.find_exn s.vars x ] nfa else nfa)
   in
   match res with
   | Some (s, model, models) ->
@@ -709,10 +715,9 @@ let get_model_semenov f =
     in
     let map =
       thing (model :: models)
-      |> List.mapi (fun i v -> List.nth (Map.keys s.vars) i, v)
+      |> List.mapi (fun i v -> List.nth (Map.keys (filter_linear s.vars)) i, v)
       |> Map.of_alist_exn
     in
-    let map = Map.filter_keys map ~f:(fun key -> not (is_exp key)) in
     let f =
       f
       |> Ast.map Fun.id (function
