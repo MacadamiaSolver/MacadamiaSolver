@@ -6,4 +6,5 @@
   ./examples/bad-exp.smt2
   ./examples/basic-exp-unsat.smt2
   ./examples/basic-exp-sat.smt2
-  ./examples/basic-bitvector-bitwise.smt2))
+  ./examples/basic-bitvector-bitwise.smt2
+  ./examples/double_exp.smt2))

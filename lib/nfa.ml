@@ -747,7 +747,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
       |> Base.List.zip_exn (first -- last)
       |> List.filter snd
       |> List.map fst
-      |> List.map (fun c -> c + n - 1, d)
+      |> List.map (fun c -> c + n, d)
       |> Sequence.of_list)
     |> Sequence.map ~f:(fun (c, d) ->
       let rec helper c = if Set.mem r1 (c - d) then helper (c - d) else c in
@@ -758,7 +758,7 @@ let find_c_d (nfa : t) (imp : (int, int) Map.t) =
     r1
     |> Set.to_list
     |> List.filter (fun c ->
-      List.exists (fun (c1, d) -> c mod d = 0 && c / d >= c1) r2 |> not)
+      not (List.exists (fun (c1, d) -> c mod d = c1 mod d && c >= c1) r2))
     |> List.map (fun c -> c, 0)
   in
   r2 @ r1
