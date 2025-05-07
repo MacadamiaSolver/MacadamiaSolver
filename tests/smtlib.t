@@ -29,3 +29,8 @@ Test basic bitvectors
   $ Smtlib ./examples/basic-bitvector-bitwise.smt2
   sat
   s = 0b11 (3) t = 0b10011 (19) 
+
+Test double exponent
+
+  $ Smtlib ./examples/double_exp.smt2
+  unsat
