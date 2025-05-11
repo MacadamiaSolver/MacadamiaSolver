@@ -742,7 +742,10 @@ let proof f =
       f
   in
   if run_semenov
-  then proof_semenov f
+  then (
+    let f = Optimizer.optimize f in
+    Debug.printfln "optimized formula: %a" Ast.pp_formula f;
+    proof_semenov f)
   else (
     let f = Optimizer.optimize f in
     Debug.printfln "optimized formula: %a" Ast.pp_formula f;

@@ -58,6 +58,7 @@ let apply_demourgan_law formula =
              | Ast.Mor (f1, f2) -> Ast.mand (Ast.mnot f1) (Ast.mnot f2)
              | Ast.Mand (f1, f2) -> Ast.mor (Ast.mnot f1) (Ast.mnot f2)
              | _ -> f)
+          | Ast.Mimpl (f, f') -> Ast.mor (Ast.mnot f) f'
           | _ as f -> f)
         Fun.id
         f
