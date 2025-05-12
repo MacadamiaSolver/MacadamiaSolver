@@ -251,15 +251,16 @@ end
 module Bv = struct
   open Ir.Bv
 
+  (*
   let rec eval_ir vars ir =
     match ir with
     | And terms -> failwith "", failwith ""
     | Or terms -> failwith "", failwith ""
     | Xor (term1, term22) -> failwith "", failwith ""
-  ;;
+  ;;*)
 
-  let eval vars ir =
-    let var_count = Map.length vars in
+  let eval _vars _ir =
+    (*let var_count = Map.length vars in
     match ir with
     | (Eq [ lhs; rhs ] | Geq (lhs, rhs) | Leq (lhs, rhs) | Lt (lhs, rhs) | Gt (lhs, rhs))
       as ir ->
@@ -277,6 +278,8 @@ module Bv = struct
       |> Nfa.intersect rhs_nfa
       |> Nfa.intersect lhs_nfa
       |> Nfa.truncate var_count
+      *)
+    failwith "unimplemented"
   ;;
 end
 
