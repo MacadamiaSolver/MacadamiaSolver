@@ -48,7 +48,7 @@ There are a few `.smt2` examples available within the `examples` dir.
 
 ## Chrobelias REPL
 
-Chrobelias offers CLI REPL for experimenting. It allows defining predicates, proving theorems, and visualizing the automaton the solver builds. By default opam builds an executable in `./_build/default/bin/chro.exe`. Starting it up brings you to REPL for evaluating theorem proving. We strongly encourage you to run it the following way.
+Chrobelias offers CLI REPL for experimenting. It allows defining predicates, proving theorems, and visualizing the automaton the solver builds. By default opam builds an executable in `./_build/default/bin/chro_repl.exe`. Starting it up brings you to REPL for evaluating theorem proving. We strongly encourage you to run it the following way.
 
 ```bash
 ledit ./_build/default/bin/chro_repl.exe
