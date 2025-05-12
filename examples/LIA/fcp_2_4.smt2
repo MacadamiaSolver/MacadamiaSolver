@@ -9,9 +9,10 @@ Instances of the Frobenius coin problem with two coins involving multiple
 quantifier alternations that seem difficult for modern SMT solvers.
 |)
 (set-info :category "crafted")
-(set-info :status sat)
+(set-info :status unsat)
 
 (declare-fun P () Int)
 (assert (and (<= 0 P) (forall ((x0 Int) (x1 Int)) (=> (and (<= 0 x0) (<= 0 x1)) (not (= (+ (* x0 2) (* x1 4)) P)))) (forall ((R Int)) (=> (forall ((x0 Int) (x1 Int)) (=> (and (<= 0 x0) (<= 0 x1)) (not (= (+ (* x0 2) (* x1 4)) R)))) (<= R P)))))
 (check-sat)
+(get-model)
 (exit)

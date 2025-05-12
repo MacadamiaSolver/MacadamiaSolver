@@ -1,4 +1,4 @@
 (executables
- (public_names Chro ChroRepl)
- (names chro chro_repl)
+ (public_names Chro)
+ (names chro)
  (libraries lib))

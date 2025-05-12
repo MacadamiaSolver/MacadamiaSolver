@@ -3,10 +3,10 @@
 (set-option :produce-models true)
 (declare-fun x () Int)
 (declare-fun y () Int)
+(declare-fun pow2 () Int)
 
 (assert (>= y 0))
-(assert (= x (exp 2 y)))
+(assert (= x (pow2 y)))
 (assert (> x 4))
 
 (check-sat)
-(get-model)
