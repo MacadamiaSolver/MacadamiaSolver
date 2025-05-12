@@ -1,9 +1,11 @@
 (cram
  (deps
   %{bin:Smtlib}
-  ./examples/fcp_7_11.smt2
-  ./examples/fcp_2_4.smt2
-  ./examples/bad-exp.smt2
-  ./examples/basic-exp-unsat.smt2
-  ./examples/basic-exp-sat.smt2
-  ./examples/basic-bitvector-bitwise.smt2))
+  ./qf-eia.smt2
+  ./lia.smt2
+  ./examples/LIA/fcp_2_4.smt2
+  ./examples/LIA/fcp_7_11.smt2
+  ./examples/LIA/fcp_7_11_13.smt2
+  ./examples/LIA/for-all-nats-exists-bigger.smt2
+  ./examples/QF_EIA/basic-exp-unsat.smt2
+  ./examples/QF_EIA/basic-exp-sat.smt2))

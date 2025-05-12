@@ -43,7 +43,7 @@ let dump_nfa ?msg ?vars format_nfa nfa =
     | Some vars ->
       Format.pp_print_list
         ~pp_sep:(fun fmt () -> Format.fprintf fmt "\n")
-        (fun fmt (a, b) -> Format.fprintf fmt "%d -> %s" b a)
+        (fun fmt (a, b) -> Format.fprintf fmt "%d -> %a" b Ir.pp_atom a)
         fmt
         vars;
       printfln "\n"

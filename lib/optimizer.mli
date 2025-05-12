@@ -1,1 +1,3 @@
-val optimize : Ast.formula -> Ast.formula
+(*
+   val optimize : Ast.formula -> Ast.formula
+*)

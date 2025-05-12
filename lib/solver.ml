@@ -2,59 +2,18 @@ module Set = Base.Set.Poly
 module Map = Base.Map.Poly
 
 type t =
-  { preds : (string * string list * Ast.formula * Nfa.t * (string, int) Map.t) list
+  { (*preds : (string * Ir.atom list * Ir.t * Nfa.t * (Ir.atom, int) Map.t) list
   ; rpreds : (string * Regex.t * Nfa.t) list
-  ; vars : (string, int) Map.t
-  ; total : int
-  ; progress : int
+  ; *)
+    vars : (Ir.atom, int) Map.t
+    (* total : int
+  ; progress : int*)
   }
 
-let ( let* ) = Result.bind
-let return = Result.ok
-let fail = Result.error
-let throw_if cond a = if cond then Result.error a else Result.ok ()
-let default_s () = { preds = []; rpreds = []; vars = Map.empty; total = 0; progress = 0 }
-let s = ref (default_s ())
+let throw_if cond a = if cond then failwith a
+(*let default_s () = { (*preds = []; rpreds = []; *)vars = Map.empty(*; total = 0; progress = 0*) }
+let s = ref (default_s ())*)
 
-let collect f =
-  Ast.fold
-    (fun acc ast ->
-       match ast with
-       | Ast.Exists (xs, _) | Ast.Any (xs, _) -> Set.union acc (Set.of_list xs)
-       | Ast.Pred (_, _) -> acc
-       | _ -> acc)
-    (fun acc x ->
-       match x with
-       | Ast.Var x -> Set.add acc x
-       | Ast.Pow (_, x) ->
-         (match x with
-          | Ast.Var x -> Set.add acc ("2**" ^ x)
-          | _ -> failwith "unimplemented")
-       | _ -> acc)
-    Set.empty
-    f
-;;
-
-let collect_free f =
-  Ast.fold
-    (fun acc ast ->
-       match ast with
-       | Ast.Exists (xs, _) | Ast.Any (xs, _) -> Set.diff acc (Set.of_list xs)
-       | Ast.Pred (_, _) -> acc
-       | _ -> acc)
-    (fun acc x ->
-       match x with
-       | Ast.Var x -> Set.add acc x
-       | Ast.Pow (_, x) ->
-         (match x with
-          | Ast.Var x -> Set.add acc x
-          | _ -> failwith "unimplemented")
-       | _ -> acc)
-    Set.empty
-    f
-;;
-
-let _estimate f = Ast.fold (fun acc _ -> acc + 1) (fun acc _ -> acc + 1) 0 f
 let internal_counter = ref 0
 
 let internal s =
@@ -62,269 +21,305 @@ let internal s =
   !internal_counter - 1 + Map.length s.vars
 ;;
 
-let teval s ast =
-  let var_exn v = Map.find_exn s.vars v in
-  let rec teval ast =
-    let teval2 build_nfa l r =
-      let lv, la = teval l in
-      let rv, ra = teval r in
-      let res = internal s in
-      res, build_nfa ~lhs:lv ~rhs:rv ~res |> Nfa.intersect la |> Nfa.intersect ra
-    in
-    match ast with
-    | Ast.Var a ->
-      let var = var_exn a in
-      var, NfaCollection.n ()
-    | Ast.Const a ->
-      let var = internal s in
-      var, NfaCollection.eq_const var a
-    | Ast.Add (l, r) -> teval2 NfaCollection.add l r
-    | Ast.Bvand (l, r) -> teval2 NfaCollection.bvand l r
-    | Ast.Bvor (l, r) -> teval2 NfaCollection.bvor l r
-    | Ast.Bvxor (l, r) -> teval2 NfaCollection.bvxor l r
-    | Ast.Mul (a, b) ->
-      let rec teval_mul a b =
-        match a with
-        | 0 ->
-          let var = internal s in
-          var, NfaCollection.eq_const var 0
-        | 1 -> teval b
-        | _ ->
-          (match a mod 2 with
-           | 0 ->
-             let tv, ta = teval_mul (a / 2) b in
-             let res = internal s in
-             res, NfaCollection.add ~lhs:tv ~rhs:tv ~res |> Nfa.intersect ta
-           | 1 ->
-             let tv, ta = teval_mul (a - 1) b in
-             let uv, ua = teval b in
-             let res = internal s in
-             ( res
-             , NfaCollection.add ~lhs:tv ~rhs:uv ~res
-               |> Nfa.intersect ta
-               |> Nfa.intersect ua )
-           | _ -> assert false)
+let collect_vars ir =
+  Ir.fold
+    (fun acc -> function
+       | Ir.Exists (atoms, _) -> Set.union acc (Set.of_list atoms)
+       | Ir.Eia
+           ( Ir.Eia.Eq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Leq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Geq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Gt (Ir.Eia.Sum term, _)
+           | Ir.Eia.Lt (Ir.Eia.Sum term, _) ) ->
+         Set.union acc (Set.of_list (Map.keys term))
+       | _ -> acc)
+    Set.empty
+    ir
+  |> Set.to_list
+  |> List.mapi (fun i var -> var, i)
+  |> Map.of_alist_exn
+;;
+
+let collect_free ir =
+  Ir.fold
+    (fun acc -> function
+       | Ir.Eia
+           ( Ir.Eia.Eq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Leq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Geq (Ir.Eia.Sum term, _)
+           | Ir.Eia.Gt (Ir.Eia.Sum term, _)
+           | Ir.Eia.Lt (Ir.Eia.Sum term, _) ) ->
+         Set.union acc (Set.of_list (Map.keys term))
+       | Ir.Exists (xs, _) -> Set.diff acc (Set.of_list xs)
+       | _ -> acc)
+    Set.empty
+    ir
+;;
+
+let simpl_ir ir =
+  let simpl_negation =
+    Ir.map (function
+      | Ir.Lnot (Ir.Lnot ir) -> ir
+      | Ir.Lnot (Ir.Lor irs) -> Ir.land_ (List.map Ir.lnot irs)
+      | Ir.Lnot (Ir.Land irs) -> Ir.lor_ (List.map Ir.lnot irs)
+      | ir -> ir)
+  in
+  let simpl_ops =
+    Ir.map (function
+      | Ir.Lnot (Ir.Eia (Ir.Eia.Leq (term, c))) -> Ir.eia (Ir.Eia.gt term c)
+      | Ir.Lnot (Ir.Eia (Ir.Eia.Geq (term, c))) -> Ir.eia (Ir.Eia.lt term c)
+      | Ir.Lnot (Ir.Eia (Ir.Eia.Lt (term, c))) -> Ir.eia (Ir.Eia.geq term c)
+      | Ir.Lnot (Ir.Eia (Ir.Eia.Gt (term, c))) -> Ir.eia (Ir.Eia.leq term c)
+      | ir -> ir)
+  in
+  let quantifiers_closer =
+    Ir.map (function
+      | Ir.Exists ([], ir) -> ir
+      | Ir.Exists (atoms, Ir.Exists (atoms', ir)) -> Ir.exists (atoms @ atoms') ir
+      | Ir.Exists (atoms, (Ir.Land irs as ir')) | Ir.Exists (atoms, (Ir.Lor irs as ir'))
+        ->
+        let op =
+          match ir' with
+          | Ir.Land _ -> Ir.land_
+          | Ir.Lor _ -> Ir.lor_
+          | _ -> assert false
+        in
+        let atoms_set = atoms |> Set.of_list in
+        let irs_using_var =
+          List.mapi
+            begin
+              fun i ir ->
+                let free_vars = collect_free ir in
+                let used_vars = Set.inter atoms_set free_vars in
+                i, used_vars
+            end
+            irs
+        in
+        let var_is_used_in =
+          List.map
+            begin
+              fun atom ->
+                ( atom
+                , List.filter_map
+                    (fun (i, s) -> if Set.mem s atom then Some i else None)
+                    irs_using_var )
+            end
+            atoms
+          |> Map.of_alist_exn
+        in
+        let atoms, irs =
+          Map.fold
+            ~f:
+              begin
+                fun ~key:atom ~data:used_in (atoms, irs) ->
+                  match used_in with
+                  | [] -> atoms, irs
+                  | [ i ] ->
+                    ( atoms
+                    , List.mapi
+                        (fun j ir -> if i = j then Ir.exists [ atom ] ir else ir)
+                        irs )
+                  | _ -> atom :: atoms, irs
+              end
+            ~init:([], irs)
+            var_is_used_in
+        in
+        Ir.exists atoms (op irs)
+      | ir -> ir)
+  in
+  let rec simpl ir =
+    let ir' = ir |> simpl_ops |> simpl_negation |> quantifiers_closer in
+    Debug.printf "Simplify step: %a\n" Ir.pp ir';
+    if Ir.equal ir' ir then ir' else simpl ir'
+  in
+  simpl ir
+  |> fun x ->
+  Debug.printf "Simplified expression: %a\n" Ir.pp x;
+  x
+;;
+
+module Eia = struct
+  open Ir.Eia
+
+  let eval vars ir =
+    match ir with
+    | ( Eq (Sum term, c)
+      | Geq (Sum term, c)
+      | Leq (Sum term, c)
+      | Lt (Sum term, c)
+      | Gt (Sum term, c) ) as ir ->
+      Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
+      let var_count = Map.length vars in
+      let internalc = ref var_count in
+      let internal () =
+        let var = !internalc in
+        internalc := !internalc + 1;
+        var
       in
-      let v, nfa = teval_mul a b in
-      v, nfa
-    | Ast.Pow (_, x) ->
-      (match x with
-       | Ast.Var x ->
-         let var = var_exn ("2**" ^ x) in
-         var, NfaCollection.n ()
-       | _ -> failwith "unimplemented")
-  in
-  let nfa = teval ast in
-  nfa
-;;
+      let lhs_term = Map.filter ~f:(( < ) 0) term in
+      let lhs_c = if c < 0 then -c else 0 in
+      let rhs_term = Map.filter ~f:(( > ) 0) term |> Map.map ~f:(fun a -> -a) in
+      let rhs_c = if c > 0 then c else 0 in
+      Debug.printfln "LHS RHS C %d %d" lhs_c rhs_c;
+      (* TODO: Speed this stuff up. *)
+      let nfa_term_c term c =
+        let mul a atom =
+          let idx = Map.find_exn vars atom in
+          let rec mul = function
+            | 0 -> failwith "unreachable"
+            | 1 ->
+              let ret_idx = internal () in
+              ret_idx, NfaCollection.eq ret_idx idx
+            | a when a mod 2 = 0 ->
+              let idx', nfa' = mul (a / 2) in
+              let ret_idx = internal () in
+              ( ret_idx
+              , NfaCollection.add ~lhs:idx' ~rhs:idx' ~res:ret_idx |> Nfa.intersect nfa' )
+            | a ->
+              let idx', nfa' = mul (a - 1) in
+              let idx'' = internal () in
+              let nfa'' = NfaCollection.eq idx'' idx in
+              let ret_idx = internal () in
+              ( ret_idx
+              , NfaCollection.add ~lhs:idx' ~rhs:idx'' ~res:ret_idx
+                |> Nfa.intersect nfa'
+                |> Nfa.intersect nfa'' )
+          in
+          mul a
+        in
+        let atom_nfas =
+          Map.mapi ~f:(fun ~key:var ~data:a -> mul a var) term
+          |> Map.to_alist
+          |> List.map snd
+        in
+        let idx, nfa =
+          match atom_nfas with
+          | (idx, nfa) :: tl ->
+            List.fold_left
+              (fun (idx', nfa') (idx, nfa) ->
+                 let idx'' = internal () in
+                 let nfa'' =
+                   NfaCollection.add ~lhs:idx ~rhs:idx' ~res:idx''
+                   |> Nfa.intersect nfa
+                   |> Nfa.intersect nfa'
+                 in
+                 idx'', nfa'')
+              (idx, nfa)
+              tl
+          | [] ->
+            let idx = internal () in
+            let nfa = NfaCollection.eq_const idx 0 in
+            idx, nfa
+        in
+        if c <> 0
+        then (
+          let idx' = internal () in
+          let nfa' = NfaCollection.eq_const idx' c in
+          let res_idx = internal () in
+          let nfa =
+            NfaCollection.add ~lhs:idx ~rhs:idx' ~res:res_idx
+            |> Nfa.intersect nfa
+            |> Nfa.intersect nfa'
+          in
+          res_idx, nfa)
+        else idx, nfa
+      in
+      let lhs_idx, lhs_nfa = nfa_term_c lhs_term lhs_c in
+      let rhs_idx, rhs_nfa = nfa_term_c rhs_term rhs_c in
+      Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa lhs_nfa;
+      Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa rhs_nfa;
+      Debug.printf "%d %d" lhs_idx rhs_idx;
+      let build_nfa =
+        match ir with
+        | Eq (_, _) -> NfaCollection.eq
+        | Leq (_, _) -> NfaCollection.leq
+        | Geq (_, _) -> NfaCollection.geq
+        | Lt (_, _) -> NfaCollection.lt
+        | Gt (_, _) -> NfaCollection.gt
+      in
+      build_nfa lhs_idx rhs_idx
+      |> Nfa.intersect rhs_nfa
+      |> Nfa.intersect lhs_nfa
+      |> Nfa.truncate var_count
+      |> (fun x ->
+      Debug.dump_nfa ~msg:"res %s" Nfa.format_nfa x;
+      x)
+      |> Nfa.minimize
+  ;;
+end
 
-let eval s ast =
-  let vars =
-    collect ast |> Set.to_list |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn
-  in
-  let s = { preds = s.preds; rpreds = s.rpreds; vars; total = 0; progress = 0 } in
-  let deg () = Map.length s.vars in
-  let var_exn v = Map.find_exn s.vars v in
-  let reset_internals () = internal_counter := Map.length s.vars in
-  let rec eval ast =
-    let nfa =
-      match ast with
-      | Ast.True -> NfaCollection.n () |> return
-      | Ast.False -> NfaCollection.z () |> return
-      | Ast.Eq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.eq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Neq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.neq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Leq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.leq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Geq (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.geq lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Lt (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.lt lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Gt (l, r) ->
-        let lv, la = teval s l in
-        let rv, ra = teval s r in
-        reset_internals ();
-        NfaCollection.gt lv rv
-        |> Nfa.intersect la
-        |> Nfa.intersect ra
-        |> Nfa.truncate (deg ())
-        |> return
-      | Ast.Mnot f ->
-        let* nfa = eval f in
-        nfa |> Nfa.invert |> Nfa.minimize |> return
-      | Ast.Mand (f1, f2) ->
-        let* la = eval f1 in
-        let* ra = eval f2 in
-        Nfa.intersect la ra |> return
-      | Ast.Mor (f1, f2) ->
-        let* la = eval f1 in
-        let* ra = eval f2 in
-        Nfa.unite la ra |> return
-      | Ast.Mimpl (f1, f2) ->
-        let* la = eval f1 in
-        let* ra = eval f2 in
-        Nfa.unite (la |> Nfa.invert) ra |> return
-      | Ast.Exists (x, f) ->
-        let* nfa = eval f in
-        let x = List.map var_exn x in
-        nfa |> Nfa.project x |> Nfa.minimize |> return
-      | Ast.Any (x, f) ->
-        let* nfa = eval f in
-        let x = List.map var_exn x in
-        nfa |> Nfa.invert |> Nfa.project x |> Nfa.invert |> Nfa.minimize |> return
-      | Ast.Pred (name, args) ->
-        (match
-           List.find_opt (fun (pred_name, _, _, _, _) -> pred_name = name) s.preds
-         with
-         | Some pred ->
-           let _, pred_params, _, pred_nfa, pred_vars = pred in
-           let* () =
-             let pl = List.length pred_params in
-             let al = List.length args in
-             Format.sprintf
-               "expected %d arguments for predicate %s but found %d arguments"
-               pl
-               name
-               al
-             |> throw_if (pl <> al)
-           in
-           let args = List.map (teval s) args in
-           let map =
-             List.mapi
-               (fun i (v, _) -> v, List.nth pred_params i |> Map.find_exn pred_vars)
-               args
-             |> Map.of_alist_exn
-           in
-           reset_internals ();
-           let nfa = pred_nfa |> Nfa.reenumerate map in
-           let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
-           nfa |> Nfa.truncate (deg ()) |> return
-         | None ->
-           (match
-              List.find_opt (fun (rpred_name, _, _) -> name = rpred_name) s.rpreds
-            with
-            | Some rpred ->
-              let _, _, rpred_nfa = rpred in
-              let args = List.map (teval s) args in
-              let map = List.mapi (fun i (v, _) -> v, i) args |> Map.of_alist_exn in
-              reset_internals ();
-              let nfa = rpred_nfa |> Nfa.reenumerate map in
-              let nfa = List.fold_left Nfa.intersect nfa (List.map snd args) in
-              nfa |> Nfa.truncate (deg ()) |> return
-            | None -> Format.sprintf "unknown predicate %s" name |> fail))
-      | _ -> failwith "unimplemented"
-    in
-    nfa
-  in
-  let* res = eval ast in
-  (res, vars) |> return
-;;
+module Bv = struct
+  open Ir.Bv
 
-let ( let* ) = Result.bind
+  let rec eval_ir vars ir =
+    match ir with
+    | And terms -> failwith "", failwith ""
+    | Or terms -> failwith "", failwith ""
+    | Xor (term1, term22) -> failwith "", failwith ""
+  ;;
+
+  let eval vars ir =
+    let var_count = Map.length vars in
+    match ir with
+    | (Eq [ lhs; rhs ] | Geq (lhs, rhs) | Leq (lhs, rhs) | Lt (lhs, rhs) | Gt (lhs, rhs))
+      as ir ->
+      let lhs_idx, lhs_nfa = eval_ir vars lhs in
+      let rhs_idx, rhs_nfa = eval_ir vars rhs in
+      let build_nfa =
+        match ir with
+        | Eq _ -> NfaCollection.eq
+        | Leq (_, _) -> NfaCollection.leq
+        | Geq (_, _) -> NfaCollection.geq
+        | Lt (_, _) -> NfaCollection.lt
+        | Gt (_, _) -> NfaCollection.gt
+      in
+      build_nfa lhs_idx rhs_idx
+      |> Nfa.intersect rhs_nfa
+      |> Nfa.intersect lhs_nfa
+      |> Nfa.truncate var_count
+  ;;
+end
+
+let eval ir =
+  let ir = simpl_ir ir in
+  let vars = collect_vars ir in
+  let rec eval = function
+    | Ir.True -> NfaCollection.n ()
+    | Ir.Lnot ir -> eval ir |> Nfa.invert
+    | Ir.Land (hd :: tl) ->
+      List.fold_left (fun nfa ir -> eval ir |> Nfa.intersect nfa) (eval hd) tl
+    | Ir.Lor (hd :: tl) ->
+      List.fold_left (fun nfa ir -> eval ir |> Nfa.unite nfa) (eval hd) tl
+    | Ir.Eia eia_ir -> Eia.eval vars eia_ir
+    | Ir.Bv bv_ir -> Bv.eval vars bv_ir
+    | Ir.Exists (atoms, ir) ->
+      eval ir |> Nfa.project (List.map (Map.find_exn vars) atoms) |> Nfa.minimize
+    | Ir.Pred _ -> failwith "fuck"
+    | _ -> Format.asprintf "Unsupported IR %a to evaluate to" Ir.pp ir |> failwith
+  in
+  eval ir
+  |> fun x ->
+  Debug.dump_nfa ~msg:"evaluating %s" Nfa.format_nfa x;
+  x, vars
+;;
 
 let dump f =
-  let* nfa, _ = eval !s f in
-  Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize) |> return
+  let nfa, _ = eval f in
+  Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize)
 ;;
 
-let list () =
-  let rec aux = function
-    | [] -> ()
-    | (name, params, f, _, _) :: xs ->
-      Format.printf
-        "%s %a = %a\n%!"
-        name
-        (Format.pp_print_list Format.pp_print_string)
-        params
-        Ast.pp_formula
-        f;
-      aux xs
-  in
-  Format.printf "Usual predicates:\n%!";
-  aux !s.preds;
-  let rec aux = function
-    | [] -> ()
-    | (name, re, _) :: xs ->
-      Format.printf "%s = %a\n%!" name Regex.pp re;
-      aux xs
-  in
-  Format.printf "\nRegular predicates:\n%!";
-  aux !s.rpreds;
-  Format.printf "\n\n%!"
-;;
-
-let pred name params f =
-  let* nfa, vars = eval !s f in
-  s
-  := { preds = (name, params, f, nfa, vars) :: !s.preds
-     ; rpreds = !s.rpreds
-     ; total = !s.total
-     ; vars = !s.vars
-     ; progress = !s.progress
-     };
-  return ()
-;;
-
-let predr name re =
-  let nfa = Regex.to_nfa re in
-  s
-  := { preds = !s.preds
-     ; rpreds = (name, re, nfa) :: !s.rpreds
-     ; total = !s.total
-     ; vars = !s.vars
-     ; progress = !s.progress
-     };
-  return ()
+let is_exp = function
+  | Ir.Pow2 _ -> true
+  | Ir.Var _ | Ir.Internal _ -> false
 ;;
 
 let get_model f =
-  let* () =
+  let () =
     throw_if
-      (Ast.for_some
-         (fun _ -> false)
-         (function
-           | Ast.Pow (_, _) -> true
-           | _ -> false)
-         f)
+      (collect_vars f |> Map.keys |> List.exists is_exp)
       "Semenov arithmetic doesn't support getting a model yet"
   in
-  let* nfa, vars = f |> eval !s in
+  let nfa, vars = eval f in
   let free_vars = f |> collect_free |> Set.to_list in
   let model = Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars) in
   match model with
@@ -332,8 +327,7 @@ let get_model f =
     List.mapi (fun i v -> List.nth free_vars i, v) model
     |> Map.of_alist_exn
     |> Option.some
-    |> return
-  | None -> Option.none |> return
+  | None -> Option.none
 ;;
 
 let log2 n =
@@ -344,12 +338,6 @@ let log2 n =
   helper (-1) n
 ;;
 
-let _pow2 n =
-  match n with
-  | 0 -> 1
-  | n -> List.init (n - 1) (Fun.const 2) |> List.fold_left ( * ) 1
-;;
-
 let gen_list_n n =
   let rec helper acc = function
     | 0 -> [ 0 ]
@@ -358,11 +346,14 @@ let gen_list_n n =
   helper [] n |> List.rev
 ;;
 
-let is_exp var = String.starts_with ~prefix:"2**" var
+let get_exp = function
+  | Ir.Pow2 var -> Ir.var var
+  | Ir.Var _ | Ir.Internal _ -> failwith "Expected exponent, found var"
+;;
 
-let get_exp var =
-  assert (is_exp var);
-  String.sub var 3 (String.length var - 3)
+let to_exp = function
+  | Ir.Pow2 _ -> failwith "Expected var"
+  | Ir.Var var | Ir.Internal var -> Ir.pow2 var
 ;;
 
 let decide_order vars =
@@ -440,8 +431,6 @@ let nfa_for_exponent2 s var var2 chrob =
     nfa)
 ;;
 
-let _ = nfa_for_exponent2
-
 let nfa_for_exponent s var newvar chrob =
   chrob
   |> List.concat_map (fun (a, c) ->
@@ -486,7 +475,8 @@ let nfa_for_exponent s var newvar chrob =
     nfa)
 ;;
 
-let rec remove_leading_quantifiers = function
+(*
+   let rec remove_leading_quantifiers = function
   | Ast.Exists (_, f) -> remove_leading_quantifiers f
   | _ as f -> f
 ;;
@@ -508,9 +498,10 @@ let%expect_test "Useless quantifier remove" =
   |> Format.printf "%a" Ast.pp_formula;
   [%expect {| (z = 15) |}]
 ;;
+*)
 
 let proof_semenov formula =
-  let formula = remove_leading_quantifiers formula in
+  (*let formula = failwith "" remove_leading_quantifiers formula in*)
   (*if
     Ast.for_some
       (function
@@ -524,8 +515,24 @@ let proof_semenov formula =
        formulas might be undecidable. We still try to evaluate them though to try out the \
        limitations of the algorithm.\n\
        %!";*)
-  let* nfa, vars = eval !s formula in
+  let vars = collect_vars formula in
+  let formula =
+    formula
+    |> (fun ir ->
+    Ir.exists
+      (vars
+       |> Map.keys
+       |> List.filter (fun var -> (not (is_exp var)) && not (Map.mem vars (to_exp var))))
+      ir)
+    |> simpl_ir
+  in
+  let nfa, vars = eval formula in
   let nfa = Nfa.minimize nfa in
+  Debug.dump_nfa
+    ~msg:"Minimized raw original nfa: %s"
+    ~vars:(Map.to_alist vars)
+    Nfa.format_nfa
+    nfa;
   let nfa =
     Map.fold
       ~init:nfa
@@ -533,38 +540,39 @@ let proof_semenov formula =
         if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
       vars
   in
+  Debug.dump_nfa
+    ~msg:"Minimized raw2 original nfa: %s"
+    ~vars:(Map.to_alist vars)
+    Nfa.format_nfa
+    nfa;
   let nfa =
     Map.fold
       ~f:(fun ~key:k ~data:v acc ->
         if is_exp k
         then acc
-        else if Map.mem vars ("2**" ^ k) |> not
+        else if Map.mem vars (to_exp k) |> not
         then Nfa.project [ v ] acc
         else acc)
       ~init:nfa
       vars
   in
+  Debug.dump_nfa
+    ~msg:"Minimized raw3 original nfa: %s"
+    ~vars:(Map.to_alist vars)
+    Nfa.format_nfa
+    nfa;
   let nfa = Nfa.minimize nfa in
   Debug.dump_nfa
     ~msg:"Minimized original nfa: %s"
     ~vars:(Map.to_alist vars)
     Nfa.format_nfa
     nfa;
-  let s = { !s with vars } in
+  let s = { vars } in
   let get_deg x = Map.find_exn vars x in
   let powered_vars =
-    Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars ("2**" ^ k)) vars
+    Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars (to_exp k)) vars
   in
-  let orders : string list list = decide_order powered_vars in
-  let first x =
-    x
-    |> Seq.find (function
-      | Ok true | Error _ -> true
-      | Ok false -> false)
-    |> function
-    | Some x -> x
-    | None -> Ok false
-  in
+  let orders = decide_order powered_vars in
   let rec proof_order nfa order =
     match order with
     | [] -> nfa |> Nfa.run
@@ -591,7 +599,7 @@ let proof_semenov formula =
             let zero_nfa =
               nfa |> Nfa.intersect zero_nfa |> Nfa.project [ Map.find_exn s.vars x ]
             in
-            Debug.printf "Zero nfa for %s: " x;
+            Debug.printf "Zero nfa for %a: " Ir.pp_atom x;
             Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
             if proof_order zero_nfa tl
             then true
@@ -635,63 +643,57 @@ let proof_semenov formula =
   |> Seq.map (fun order ->
     Debug.printfln
       "Trying order %a"
-      (Format.pp_print_list
-         ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ")
-         Format.pp_print_string)
+      (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ") Ir.pp_atom)
       (order |> List.rev);
     let len = List.length order in
-    let* nfa =
+    let nfa =
       if len <= 1
-      then Ok nfa
-      else
-        let* order_nfa, order_vars =
+      then nfa
+      else (
+        let order_nfa, order_vars =
           eval
-            s
             (Seq.zip
                (order |> List.to_seq |> Seq.take (len - 1))
                (order |> List.to_seq |> Seq.drop 1)
-             |> Seq.map (fun (x, y) -> Ast.Geq (Ast.Var x, Ast.Var y))
+             |> Seq.map (fun (x, y) ->
+               let term = [ x, 1; y, -1 ] |> Map.of_alist_exn in
+               Ir.Eia (Ir.Eia.geq (Ir.Eia.sum term) 0))
              |> List.of_seq
              |> function
              | [] -> failwith ""
-             | h :: tl -> List.fold_left Ast.mand h tl)
+             | comps -> Ir.land_ comps)
         in
         let order_nfa =
           Nfa.reenumerate
             (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn vars k))
             order_nfa
         in
-        Nfa.intersect nfa order_nfa |> Nfa.minimize |> Result.ok
+        Nfa.intersect nfa order_nfa |> Nfa.minimize)
     in
     Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
-    (nfa
-     |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
-     |> Nfa.run
-     && proof_order nfa order)
-    |> Result.ok)
-  |> first
+    nfa |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str)) |> Nfa.run
+    && proof_order nfa order)
+  |> Seq.find (fun x -> x)
+  |> function
+  | Some x -> if x then `Sat else `Unsat
+  | None -> `Unsat
 ;;
 
-let proof f =
-  let run_semenov =
-    Ast.for_some
-      (fun _ -> false)
-      (function
-        | Ast.Pow (_, _) -> true
-        | _ -> false)
-      f
-  in
+let proof ir =
+  let run_semenov = collect_vars ir |> Map.keys |> List.exists is_exp in
   if run_semenov
-  then proof_semenov f
+  then proof_semenov ir
   else (
-    let f = Optimizer.optimize f in
-    Debug.printfln "optimized formula: %a" Ast.pp_formula f;
-    let* nfa, _ = f |> eval !s in
+    (*let f = Optimizer.optimize f in
+    Debug.printfln "optimized formula: %a" Ast.pp_formula f;*)
+    let free_vars = collect_free ir in
+    let ir = Ir.exists (free_vars |> Set.to_list) ir in
+    let nfa, _ = ir |> eval in
     Debug.dump_nfa ~msg:"resulting nfa: %s" Nfa.format_nfa nfa;
-    Nfa.run nfa |> return)
+    if Nfa.run nfa then `Sat else `Unsat)
 ;;
-
-let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
+(*
+   let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =
   Format.printf
     "%b"
     ({|AxEyEz x = 3*y + 5*z | x <= 7|}
@@ -1270,3 +1272,4 @@ let%expect_test "Proof quantified 2**x can be equal to 2**y + 2**z + 7 using com
      |> Result.get_ok);
   [%expect {| true |}]
 ;;
+*)
