@@ -1,11 +1,11 @@
 (lang dune 3.16)
 
-(name MacadamiaSolver)
+(name Chrobelias)
 
 (generate_opam_files true)
 
 (source
- (github MacadamiaSolver/MacadamiaSolver))
+ (github Chrobelias/Chrobelias))
 
 (authors "Georgiy Belyanin, Timofey Frolov, Ignat Sergeev")
 
@@ -14,8 +14,8 @@
 (license LICENSE)
 
 (package
- (name MacadamiaSolver)
- (synopsis "Theorem Solver")
+ (name Chrobelias)
+ (synopsis "Chrobak existential linear integer arithmetic solver")
  (depends
   ocaml
   dune

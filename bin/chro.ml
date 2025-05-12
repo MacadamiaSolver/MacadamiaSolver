@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
+
 open Lib
 module Map = Base.Map.Poly
 

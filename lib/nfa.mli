@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
+
 module Map = Base.Map.Poly
 module Set = Base.Set.Poly
 module Sequence = Base.Sequence

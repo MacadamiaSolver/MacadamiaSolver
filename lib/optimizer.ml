@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
+
 let contains var f =
   Ast.for_some
     (function

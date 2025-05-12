@@ -1,4 +1,4 @@
 (executables
- (public_names MacadamiaSolver Smtlib)
- (names mandms smtlib)
+ (public_names Chro ChroRepl)
+ (names chro chro_repl)
  (libraries lib))

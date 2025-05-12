@@ -3,7 +3,7 @@ let
   pkgs = import nixpkgs {};
 in
 pkgs.mkShell {
-    name = "MacadamiaSolver";
+    name = "Chrobelias";
     packages = [ 
       # Treesitter-parsers
       pkgs.vimPlugins.nvim-treesitter-parsers.ocaml 
