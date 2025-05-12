@@ -1,6 +1,5 @@
-(** Copyright 2024, MacadamiaSolver. *)
-
-(** SPDX-License-Identifier: MIT *)
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
 
 open Angstrom
 

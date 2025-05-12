@@ -1,6 +1,5 @@
-(** Copyright 2024, MacadamiaSolver. *)
-
 (* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
 
 type varname = string
 type predname = string

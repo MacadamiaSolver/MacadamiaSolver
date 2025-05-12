@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
+
 type varpos = int
 
 val add : lhs:varpos -> rhs:varpos -> res:varpos -> Nfa.t

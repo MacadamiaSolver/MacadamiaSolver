@@ -1,6 +1,5 @@
-(** Copyright 2024, MacadamiaSolver. *)
-
-(** SPDX-License-Identifier: MIT *)
+(* SPDX-License-Identifier: MIT *)
+(* Copyright 2024-2025, Chrobelias. *)
 
 open Lib
 module Map = Base.Map.Poly
@@ -8,7 +7,7 @@ module Map = Base.Map.Poly
 let help () =
   Format.printf
     {|
-MacadamiaSolver REPL help.
+Chrobelias REPL help.
 
 This is an utility tool for proving some of the theorems and debugging the
 algorithms. If you want to execute an .smt2 file use smtlib tool.
@@ -24,7 +23,7 @@ Commands
 * list                                     - list regular predicates.
 * help                                     - see help
 
-Prove Frobenious coin problem using the solver in PrA:
+Prove Frobenius coin problem using the solver in PrA:
 
     > eval AxEyEz x = 3*y + 5*z | x <= 7
 
@@ -105,7 +104,7 @@ let exec line = function
 
 let welcome () =
   Format.printf
-    {|Welcome to MacadamiaSolver REPL. Use `help` to see available commands.
+    {|Welcome to Chrobelias REPL. Use `help` to see available commands.
 
 |}
 ;;

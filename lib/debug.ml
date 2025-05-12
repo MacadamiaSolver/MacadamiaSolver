@@ -1,5 +1,5 @@
 let nfa_cnt = ref 0
-let flag () = Sys.getenv_opt "MANDAMS_DEBUG" |> Option.is_some
+let flag () = Sys.getenv_opt "CHRO_DEBUG" |> Option.is_some
 
 let fmt =
   if flag ()
