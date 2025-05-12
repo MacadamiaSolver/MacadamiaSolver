@@ -249,10 +249,10 @@ module Eia = struct
 end
 
 module Bv = struct
-  open Ir.Bv
+  (*open Ir.Bv*)
 
   (*
-  let rec eval_ir vars ir =
+     let rec eval_ir vars ir =
     match ir with
     | And terms -> failwith "", failwith ""
     | Or terms -> failwith "", failwith ""
@@ -278,7 +278,7 @@ module Bv = struct
       |> Nfa.intersect rhs_nfa
       |> Nfa.intersect lhs_nfa
       |> Nfa.truncate var_count
-      *)
+    *)
     failwith "unimplemented"
   ;;
 end

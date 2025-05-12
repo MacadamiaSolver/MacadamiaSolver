@@ -14,4 +14,5 @@ quantifier alternations that seem difficult for modern SMT solvers.
 (declare-fun P () Int)
 (assert (and (<= 0 P) (forall ((x0 Int) (x1 Int)) (=> (and (<= 0 x0) (<= 0 x1)) (not (= (+ (* x0 7) (* x1 11)) P)))) (forall ((R Int)) (=> (forall ((x0 Int) (x1 Int)) (=> (and (<= 0 x0) (<= 0 x1)) (not (= (+ (* x0 7) (* x1 11)) R)))) (<= R P)))))
 (check-sat)
+(get-model)
 (exit)

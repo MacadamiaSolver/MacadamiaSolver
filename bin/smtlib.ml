@@ -25,7 +25,6 @@ module Conv = struct
       match v with
       | True -> `Ir Ir.true_
       | Int d -> `Eia (Ir.Eia.sum Map.empty, d, [])
-      | Num (Num.I8 d) -> `Eia (Ir.Eia.sum Map.empty, d, [])
       | _ -> failwith "err"
     end
     (* Variables. *)
@@ -126,7 +125,7 @@ module Conv = struct
       let exprs = List.map expect_ir exprs in
       `Ir (Ir.lor_ exprs)
     (* Implication *)
-    | Expr.Binop (_ty, Ty.Binop.Impl, lhs, rhs) -> begin
+    | Expr.Binop (_ty, Ty.Binop.Implies, lhs, rhs) -> begin
       match lhs |> _to_ir, rhs |> _to_ir with
       | `Ir lhs, `Ir rhs -> `Ir (Ir.lor_ [ Ir.lnot lhs; rhs ])
       | _ ->
@@ -295,9 +294,7 @@ let () =
       acc*)
     | Smtml.Ast.Assert expr -> begin
       match Conv._to_ir expr with
-      | `Ir ir ->
-        Format.printf "%a\n%!" Lib.Ir.pp ir;
-        { state with asserts = ir :: state.asserts }
+      | `Ir ir -> { state with asserts = ir :: state.asserts }
       | _ -> failwith "Expected boolean formula"
     end
     | _ -> state
