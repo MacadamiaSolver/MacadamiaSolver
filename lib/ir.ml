@@ -32,6 +32,16 @@ module Eia = struct
         (Map.to_alist term)
   ;;
 
+  let add (Sum lhs) (Sum rhs) =
+    Map.merge lhs rhs ~f:(fun ~key:_ value ->
+      Some
+        (match value with
+         | `Both (a, b) -> a + b
+         | `Right b -> b
+         | `Left a -> a))
+    |> sum
+  ;;
+
   type ir =
     | Eq of t * int
     | Lt of

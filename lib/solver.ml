@@ -167,9 +167,7 @@ module Eia = struct
           let idx = Map.find_exn vars atom in
           let rec mul = function
             | 0 -> failwith "unreachable"
-            | 1 ->
-              let ret_idx = internal () in
-              ret_idx, NfaCollection.eq ret_idx idx
+            | 1 -> idx, NfaCollection.n ()
             | a when a mod 2 = 0 ->
               let idx', nfa' = mul (a / 2) in
               let ret_idx = internal () in
@@ -177,13 +175,9 @@ module Eia = struct
               , NfaCollection.add ~lhs:idx' ~rhs:idx' ~res:ret_idx |> Nfa.intersect nfa' )
             | a ->
               let idx', nfa' = mul (a - 1) in
-              let idx'' = internal () in
-              let nfa'' = NfaCollection.eq idx'' idx in
               let ret_idx = internal () in
               ( ret_idx
-              , NfaCollection.add ~lhs:idx' ~rhs:idx'' ~res:ret_idx
-                |> Nfa.intersect nfa'
-                |> Nfa.intersect nfa'' )
+              , NfaCollection.add ~lhs:idx' ~rhs:idx ~res:ret_idx |> Nfa.intersect nfa' )
           in
           mul a
         in
@@ -228,7 +222,7 @@ module Eia = struct
       let rhs_idx, rhs_nfa = nfa_term_c rhs_term rhs_c in
       Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa lhs_nfa;
       Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa rhs_nfa;
-      Debug.printf "%d %d" lhs_idx rhs_idx;
+      Debug.printfln "lhs->%d, rhs->%d" lhs_idx rhs_idx;
       let build_nfa =
         match ir with
         | Eq (_, _) -> NfaCollection.eq

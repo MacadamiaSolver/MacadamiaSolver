@@ -7,8 +7,8 @@ module Conv = struct
   let rec _to_ir orig_expr =
     let expect_eia expr =
       match expr |> _to_ir with
-      | `Eia (Ir.Eia.Sum term, c, assertions) -> term, c, assertions
-      | `Symbol var -> Map.singleton (Ir.var var) 1, 0, []
+      | `Eia (Ir.Eia.Sum term, c) -> term, c
+      | `Symbol var -> Map.singleton (Ir.var var) 1, 0
       | _ -> failwith "Expected EIA term"
     in
     let expect_ir expr =
@@ -24,7 +24,7 @@ module Conv = struct
     | Expr.Val v -> begin
       match v with
       | True -> `Ir Ir.true_
-      | Int d -> `Eia (Ir.Eia.sum Map.empty, d, [])
+      | Int d -> `Eia (Ir.Eia.sum Map.empty, d)
       | _ -> failwith "err"
     end
     (* Variables. *)
@@ -45,7 +45,7 @@ module Conv = struct
         | `Symbol symbol -> symbol
         | _ -> failwith "Semenov now only supports vars as an exponent"
       in
-      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, [])
+      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0)
     | Expr.App ({ name = Symbol.Simple "exp"; _ }, [ base; expr ])
       when base = Expr.value (Value.Int 2) ->
       let atom =
@@ -53,19 +53,19 @@ module Conv = struct
         | `Symbol symbol -> symbol
         | _ -> failwith "Semenov now only supports vars as an exponent"
       in
-      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, [])
+      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0)
     (* Arithmetic operations. *)
     | Expr.Unop (_ty, Ty.Unop.Neg, expr) -> begin
       match expr |> _to_ir with
-      | `Eia (Ir.Eia.Sum atoms, c, assertions) ->
+      | `Eia (Ir.Eia.Sum atoms, c) ->
         let term = atoms |> Map.map ~f:(fun a -> -a) |> Ir.Eia.sum in
         let c = -c in
-        `Eia (term, c, assertions)
+        `Eia (term, c)
       | _ -> failwith "Unimplemented "
     end
     | Expr.Binop (_ty, Ty.Binop.Mul, lhs, rhs) -> begin
-      let lhs_term, lhs_c, lhs_assertions = expect_eia lhs in
-      let rhs_term, rhs_c, rhs_assertions = expect_eia rhs in
+      let lhs_term, lhs_c = expect_eia lhs in
+      let rhs_term, rhs_c = expect_eia rhs in
       if Map.is_empty lhs_term || Map.is_empty rhs_term
       then (
         let atoms, multiplier =
@@ -73,13 +73,12 @@ module Conv = struct
         in
         let atoms = atoms |> Map.map ~f:(fun a -> a * multiplier) in
         let c = lhs_c * rhs_c in
-        let assertions = lhs_assertions @ rhs_assertions in
-        `Eia (Ir.Eia.sum atoms, c, assertions))
+        `Eia (Ir.Eia.sum atoms, c))
       else failwith "Only multiplying by constant is supported"
     end
     | Expr.Binop (_ty, Ty.Binop.Add, lhs, rhs) -> begin
-      let lhs_term, lhs_c, lhs_assertions = expect_eia lhs in
-      let rhs_term, rhs_c, rhs_assertions = expect_eia rhs in
+      let lhs_term, lhs_c = expect_eia lhs in
+      let rhs_term, rhs_c = expect_eia rhs in
       let term =
         Map.merge lhs_term rhs_term ~f:(fun ~key:_ vs ->
           match vs with
@@ -87,12 +86,11 @@ module Conv = struct
           | `Both (a, b) -> Some (a + b))
       in
       let c = lhs_c + rhs_c in
-      let assertions = lhs_assertions @ rhs_assertions in
-      `Eia (Ir.Eia.sum term, c, assertions)
+      `Eia (Ir.Eia.sum term, c)
     end
     | Expr.Binop (_ty, Ty.Binop.Sub, lhs, rhs) ->
-      let lhs_term, lhs_c, lhs_assertions = expect_eia lhs in
-      let rhs_term, rhs_c, rhs_assertions = expect_eia rhs in
+      let lhs_term, lhs_c = expect_eia lhs in
+      let rhs_term, rhs_c = expect_eia rhs in
       let atoms =
         Map.merge lhs_term rhs_term ~f:(fun ~key:_ vs ->
           match vs with
@@ -101,8 +99,7 @@ module Conv = struct
           | `Both (a, b) -> Some (a - b))
       in
       let c = lhs_c - rhs_c in
-      let assertions = lhs_assertions @ rhs_assertions in
-      `Eia (Ir.Eia.Sum atoms, c, assertions)
+      `Eia (Ir.Eia.Sum atoms, c)
     (* Logical operations. *)
     (* Not. *)
     | Expr.Unop (_ty, Ty.Unop.Not, expr) -> begin
@@ -144,9 +141,8 @@ module Conv = struct
         | Ty.Relop.Gt -> fun t c -> Ir.eia (Ir.Eia.gt t c)
         | _ -> failwith "Unsupported relational operator in EIA"
       in
-      let lhs_term, lhs_c, lhs_assertions = expect_eia lhs in
-      let rhs_term, rhs_c, rhs_assertions = expect_eia rhs in
-      let assertions = lhs_assertions @ rhs_assertions in
+      let lhs_term, lhs_c = expect_eia lhs in
+      let rhs_term, rhs_c = expect_eia rhs in
       let atoms =
         Map.merge lhs_term rhs_term ~f:(fun ~key:_ vs ->
           match vs with
@@ -157,7 +153,6 @@ module Conv = struct
       let c = rhs_c - lhs_c in
       let term = Ir.Eia.sum atoms in
       let ir = rel term c in
-      let ir = Ir.land_ (ir :: assertions) in
       `Ir ir
     (* Quantifiers and binders. *)
     | Expr.Binder (((Binder.Forall | Binder.Exists) as q), atoms, formula) ->
@@ -197,11 +192,35 @@ module Conv = struct
                    let var = Ir.Var symbol in
                    begin
                      match expr |> _to_ir with
-                     | `Eia (Ir.Eia.Sum term, c, assertions) ->
+                     | `Eia (Ir.Eia.Sum term, c) ->
                        assert (not (Map.mem term var));
-                       let term = Map.add_exn ~key:var ~data:(-1) term in
-                       let eia_formula = Ir.Eia.eq (Ir.Eia.sum term) (-c) in
-                       Ir.land_ (acc :: Ir.eia eia_formula :: assertions)
+                       let add_term = Ir.Eia.add (Ir.Eia.Sum term) in
+                       let rec add_ir = function
+                         (* TODO(timafrolov): how P(x + 5) will work? *)
+                         | Ir.Pred (name, args) ->
+                           Ir.Pred (name, args |> List.map add_term)
+                         | Ir.True -> Ir.True
+                         | Ir.Eia x ->
+                           Ir.Eia
+                             (match x with
+                              | Ir.Eia.Eq (term2, c2) -> Ir.Eia.Eq (add_term term2, c + c2)
+                              | Ir.Eia.Lt (term2, c2) -> Ir.Eia.Lt (add_term term2, c + c2)
+                              | Ir.Eia.Leq (term2, c2) ->
+                                Ir.Eia.Leq (add_term term2, c + c2)
+                              | Ir.Eia.Gt (term2, c2) -> Ir.Eia.Gt (add_term term2, c + c2)
+                              | Ir.Eia.Geq (term2, c2) ->
+                                Ir.Eia.Geq (add_term term2, c + c2))
+                         | Ir.Bv _ ->
+                           failwith "Unimplemented bitvectors in let-in binding"
+                         | Ir.Lnot ir -> Ir.Lnot (add_ir ir)
+                         | Ir.Land ir -> Ir.Land (ir |> List.map add_ir)
+                         | Ir.Lor ir -> Ir.Lor (ir |> List.map add_ir)
+                         | Ir.Exists (atoms, ir) ->
+                           if atoms |> List.mem var
+                           then Ir.Exists (atoms, ir)
+                           else Ir.Exists (atoms, add_ir ir)
+                       in
+                       add_ir acc
                      | `Ir ir' ->
                        Ir.map
                          begin
@@ -221,7 +240,7 @@ module Conv = struct
              end
              ir
              bindings)
-      | `Eia (Ir.Eia.Sum _term, _c, _assertions) -> failwith ""
+      | `Eia (Ir.Eia.Sum _term, _c) -> failwith ""
       | _ ->
         Format.asprintf
           "Unsupported expression %a within 'in' construction in 'let-in'"
@@ -264,6 +283,7 @@ let () =
         | None -> asserts
       in
       let ir = Lib.Ir.land_ (expr_irs @ get_irs state) in
+      Lib.Debug.printfln "%a" Lib.Ir.pp ir;
       begin
         match Lib.Solver.proof ir with
         | `Sat -> Format.printf "sat\n%!"
