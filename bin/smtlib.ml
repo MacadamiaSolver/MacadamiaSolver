@@ -194,22 +194,37 @@ module Conv = struct
                      match expr |> _to_ir with
                      | `Eia (Ir.Eia.Sum term, c) ->
                        assert (not (Map.mem term var));
-                       let add_term = Ir.Eia.add (Ir.Eia.Sum term) in
+                       let add_term (Ir.Eia.Sum term2) =
+                         match Map.find term2 var with
+                         | None -> Ir.Eia.Sum term2
+                         | Some x ->
+                           Ir.Eia.add
+                             (Ir.Eia.mul x (Ir.Eia.Sum term))
+                             (Ir.Eia.Sum (Map.remove term2 var))
+                       in
                        let rec add_ir = function
                          (* TODO(timafrolov): how P(x + 5) will work? *)
                          | Ir.Pred (name, args) ->
                            Ir.Pred (name, args |> List.map add_term)
                          | Ir.True -> Ir.True
-                         | Ir.Eia x ->
+                         | Ir.Eia (Ir.Eia.Eq (Ir.Eia.Sum term2, c2) as x)
+                         | Ir.Eia (Ir.Eia.Lt (Ir.Eia.Sum term2, c2) as x)
+                         | Ir.Eia (Ir.Eia.Leq (Ir.Eia.Sum term2, c2) as x)
+                         | Ir.Eia (Ir.Eia.Gt (Ir.Eia.Sum term2, c2) as x)
+                         | Ir.Eia (Ir.Eia.Geq (Ir.Eia.Sum term2, c2) as x) ->
+                           let constructor =
+                             match x with
+                             | Ir.Eia.Eq _ -> Ir.Eia.eq
+                             | Ir.Eia.Lt _ -> Ir.Eia.lt
+                             | Ir.Eia.Leq _ -> Ir.Eia.leq
+                             | Ir.Eia.Gt _ -> Ir.Eia.gt
+                             | Ir.Eia.Geq _ -> Ir.Eia.geq
+                           in
                            Ir.Eia
-                             (match x with
-                              | Ir.Eia.Eq (term2, c2) -> Ir.Eia.Eq (add_term term2, c + c2)
-                              | Ir.Eia.Lt (term2, c2) -> Ir.Eia.Lt (add_term term2, c + c2)
-                              | Ir.Eia.Leq (term2, c2) ->
-                                Ir.Eia.Leq (add_term term2, c + c2)
-                              | Ir.Eia.Gt (term2, c2) -> Ir.Eia.Gt (add_term term2, c + c2)
-                              | Ir.Eia.Geq (term2, c2) ->
-                                Ir.Eia.Geq (add_term term2, c + c2))
+                             (match Map.find term2 var with
+                              | None -> x
+                              | Some x ->
+                                constructor (add_term (Ir.Eia.Sum term2)) (c2 - (c * x)))
                          | Ir.Bv _ ->
                            failwith "Unimplemented bitvectors in let-in binding"
                          | Ir.Lnot ir -> Ir.Lnot (add_ir ir)
