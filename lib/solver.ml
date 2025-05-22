@@ -143,11 +143,71 @@ module Eia = struct
 
   let eval vars ir =
     match ir with
-    | ( Eq (Sum term, c)
-      | Geq (Sum term, c)
-      | Leq (Sum term, c)
-      | Lt (Sum term, c)
-      | Gt (Sum term, c) ) as ir ->
+    | Eq (Sum term, c) ->
+      let term = Map.map_keys_exn ~f:(Map.find_exn vars) term |> Map.to_alist in
+      let thing =
+        let rec helper = function
+          | [] -> []
+          | [ x ] -> [ 0, [ 0 ]; 1, [ x ] ]
+          | hd :: tl ->
+            let open Base.List.Let_syntax in
+            let ( let* ) = ( >>= ) in
+            let* n, thing = helper tl in
+            [ n, 0 :: thing; n + Int.shift_left 1 (List.length thing), hd :: thing ]
+        in
+        term
+        |> List.map snd
+        |> helper
+        |> List.map (fun (a, x) -> a, Base.List.sum (module Base.Int) ~f:Fun.id x)
+      in
+      Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
+      Debug.printfln
+        "thing:[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
+        thing;
+      let states = ref Set.empty in
+      let transitions = ref [] in
+      let rec lp front =
+        match front with
+        | [] -> ()
+        | hd :: tl ->
+          if Set.mem !states hd
+          then lp tl
+          else begin
+            let t =
+              thing
+              |> List.filter (fun (_, sum) -> (hd - sum) mod 2 = 0)
+              |> List.map (fun (bits, sum) -> hd, bits, (hd - sum) / 2)
+            in
+            Debug.printfln
+              "hd:%d, t:[%a]"
+              hd
+              (Format.pp_print_list
+                 ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+                 (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
+              t;
+            states := Set.add !states hd;
+            transitions := t @ !transitions;
+            lp (List.map (fun (_, _, x) -> x) t @ tl)
+          end
+      in
+      lp [ c ];
+      let states = Set.to_list !states in
+      let idx c = List.find_index (Int.equal c) states |> Option.get in
+      let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
+      Nfa.create_nfa
+        ~transitions
+        ~start:[ idx c ]
+        ~final:[ idx 0 ]
+        ~vars:(List.map fst term)
+        ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
+      |> fun x ->
+      Debug.dump_nfa ~msg:"Build Eq Nfa: %s" ~vars:(Map.to_alist vars) Nfa.format_nfa x;
+      x
+    | (Geq (Sum term, c) | Leq (Sum term, c) | Lt (Sum term, c) | Gt (Sum term, c)) as ir
+      ->
       Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
       let var_count = Map.length vars in
       let internalc = ref var_count in
