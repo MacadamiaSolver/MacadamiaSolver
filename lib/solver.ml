@@ -28,12 +28,7 @@ let collect_vars ir =
   Ir.fold
     (fun acc -> function
        | Ir.Exists (atoms, _) -> Set.union acc (Set.of_list atoms)
-       | Ir.Eia
-           ( Ir.Eia.Eq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Leq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Geq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Gt (Ir.Eia.Sum term, _)
-           | Ir.Eia.Lt (Ir.Eia.Sum term, _) ) ->
+       | Ir.Eia (Ir.Eia.Eq (Ir.Eia.Sum term, _) | Ir.Eia.Leq (Ir.Eia.Sum term, _)) ->
          Set.union acc (Set.of_list (Map.keys term))
        | _ -> acc)
     Set.empty
@@ -46,12 +41,7 @@ let collect_vars ir =
 let collect_free ir =
   Ir.fold
     (fun acc -> function
-       | Ir.Eia
-           ( Ir.Eia.Eq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Leq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Geq (Ir.Eia.Sum term, _)
-           | Ir.Eia.Gt (Ir.Eia.Sum term, _)
-           | Ir.Eia.Lt (Ir.Eia.Sum term, _) ) ->
+       | Ir.Eia (Ir.Eia.Eq (Ir.Eia.Sum term, _) | Ir.Eia.Leq (Ir.Eia.Sum term, _)) ->
          Set.union acc (Set.of_list (Map.keys term))
        | Ir.Exists (xs, _) -> Set.diff acc (Set.of_list xs)
        | _ -> acc)
@@ -70,9 +60,6 @@ let simpl_ir ir =
   let simpl_ops =
     Ir.map (function
       | Ir.Lnot (Ir.Eia (Ir.Eia.Leq (term, c))) -> Ir.eia (Ir.Eia.gt term c)
-      | Ir.Lnot (Ir.Eia (Ir.Eia.Geq (term, c))) -> Ir.eia (Ir.Eia.lt term c)
-      | Ir.Lnot (Ir.Eia (Ir.Eia.Lt (term, c))) -> Ir.eia (Ir.Eia.geq term c)
-      | Ir.Lnot (Ir.Eia (Ir.Eia.Gt (term, c))) -> Ir.eia (Ir.Eia.leq term c)
       | ir -> ir)
   in
   let quantifiers_closer =
@@ -144,110 +131,94 @@ let simpl_ir ir =
 module Eia = struct
   open Ir.Eia
 
+  let powerset term =
+    let rec helper = function
+      | [] -> []
+      | [ x ] -> [ 0, [ 0 ]; 1, [ x ] ]
+      | hd :: tl ->
+        let open Base.List.Let_syntax in
+        let ( let* ) = ( >>= ) in
+        let* n, thing = helper tl in
+        [ n, 0 :: thing; n + Int.shift_left 1 (List.length thing), hd :: thing ]
+    in
+    term
+    |> List.map snd
+    |> helper
+    |> List.map (fun (a, x) -> a, Base.List.sum (module Base.Int) ~f:Fun.id x)
+  ;;
+
   let eval vars ir =
     match ir with
-    | ( Eq (Sum term, c)
-      | Geq (Sum term, c)
-      | Leq (Sum term, c)
-      | Lt (Sum term, c)
-      | Gt (Sum term, c) ) as ir ->
+    | Eq (Sum term, c) | Leq (Sum term, c) ->
+      let term = Map.map_keys_exn ~f:(Map.find_exn vars) term |> Map.to_alist in
+      let thing = powerset term in
       Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
-      let var_count = Map.length vars in
-      let internalc = ref var_count in
-      let internal () =
-        let var = !internalc in
-        internalc := !internalc + 1;
-        var
+      Debug.printfln
+        "thing:[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
+        thing;
+      let states = ref Set.empty in
+      let transitions = ref [] in
+      let rec lp front =
+        match front with
+        | [] -> ()
+        | hd :: tl ->
+          if Set.mem !states hd
+          then lp tl
+          else begin
+            let t =
+              match ir with
+              | Eq _ ->
+                thing
+                |> List.filter (fun (_, sum) -> (hd - sum) mod 2 = 0)
+                |> List.map (fun (bits, sum) -> hd, bits, (hd - sum) / 2)
+              | Leq _ ->
+                thing
+                |> List.map (fun (bits, sum) ->
+                  ( hd
+                  , bits
+                  , match (hd - sum) mod 2 with
+                    | 0 | 1 -> (hd - sum) / 2
+                    | -1 -> ((hd - sum) / 2) - 1
+                    | _ -> failwith "Should be unreachable" ))
+            in
+            Debug.printfln
+              "hd:%d, t:[%a]"
+              hd
+              (Format.pp_print_list
+                 ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+                 (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
+              t;
+            states := Set.add !states hd;
+            transitions := t @ !transitions;
+            lp (List.map (fun (_, _, x) -> x) t @ tl)
+          end
       in
-      let lhs_term = Map.filter ~f:(( < ) 0) term in
-      let lhs_c = if c < 0 then -c else 0 in
-      let rhs_term = Map.filter ~f:(( > ) 0) term |> Map.map ~f:(fun a -> -a) in
-      let rhs_c = if c > 0 then c else 0 in
-      Debug.printfln "LHS RHS C %d %d" lhs_c rhs_c;
-      (* TODO: Speed this stuff up. *)
-      let nfa_term_c term c =
-        let mul a atom =
-          let idx = Map.find_exn vars atom in
-          let rec mul = function
-            | 0 -> failwith "unreachable"
-            | 1 ->
-              let ret_idx = internal () in
-              ret_idx, NfaCollection.eq ret_idx idx
-            | a when a mod 2 = 0 ->
-              let idx', nfa' = mul (a / 2) in
-              let ret_idx = internal () in
-              ( ret_idx
-              , NfaCollection.add ~lhs:idx' ~rhs:idx' ~res:ret_idx |> Nfa.intersect nfa' )
-            | a ->
-              let idx', nfa' = mul (a - 1) in
-              let idx'' = internal () in
-              let nfa'' = NfaCollection.eq idx'' idx in
-              let ret_idx = internal () in
-              ( ret_idx
-              , NfaCollection.add ~lhs:idx' ~rhs:idx'' ~res:ret_idx
-                |> Nfa.intersect nfa'
-                |> Nfa.intersect nfa'' )
-          in
-          mul a
-        in
-        let atom_nfas =
-          Map.mapi ~f:(fun ~key:var ~data:a -> mul a var) term
-          |> Map.to_alist
-          |> List.map snd
-        in
-        let idx, nfa =
-          match atom_nfas with
-          | (idx, nfa) :: tl ->
-            List.fold_left
-              (fun (idx', nfa') (idx, nfa) ->
-                 let idx'' = internal () in
-                 let nfa'' =
-                   NfaCollection.add ~lhs:idx ~rhs:idx' ~res:idx''
-                   |> Nfa.intersect nfa
-                   |> Nfa.intersect nfa'
-                 in
-                 idx'', nfa'')
-              (idx, nfa)
-              tl
-          | [] ->
-            let idx = internal () in
-            let nfa = NfaCollection.eq_const idx 0 in
-            idx, nfa
-        in
-        if c <> 0
-        then (
-          let idx' = internal () in
-          let nfa' = NfaCollection.eq_const idx' c in
-          let res_idx = internal () in
-          let nfa =
-            NfaCollection.add ~lhs:idx ~rhs:idx' ~res:res_idx
-            |> Nfa.intersect nfa
-            |> Nfa.intersect nfa'
-          in
-          res_idx, nfa)
-        else idx, nfa
-      in
-      let lhs_idx, lhs_nfa = nfa_term_c lhs_term lhs_c in
-      let rhs_idx, rhs_nfa = nfa_term_c rhs_term rhs_c in
-      Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa lhs_nfa;
-      Debug.dump_nfa ~msg:"dumping ndfa %s" Nfa.format_nfa rhs_nfa;
-      Debug.printf "%d %d" lhs_idx rhs_idx;
-      let build_nfa =
-        match ir with
-        | Eq (_, _) -> NfaCollection.eq
-        | Leq (_, _) -> NfaCollection.leq
-        | Geq (_, _) -> NfaCollection.geq
-        | Lt (_, _) -> NfaCollection.lt
-        | Gt (_, _) -> NfaCollection.gt
-      in
-      build_nfa lhs_idx rhs_idx
-      |> Nfa.intersect rhs_nfa
-      |> Nfa.intersect lhs_nfa
-      |> Nfa.truncate var_count
-      |> (fun x ->
-      Debug.dump_nfa ~msg:"res %s" Nfa.format_nfa x;
-      x)
-      |> Nfa.minimize
+      lp [ c ];
+      let states = Set.to_list !states in
+      Debug.printfln
+        "states:[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt a -> Format.fprintf fmt "%d" a))
+        states;
+      let states = states |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn in
+      let idx c = Map.find states c |> Option.get in
+      let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
+      Nfa.create_nfa
+        ~transitions
+        ~start:[ idx c ]
+        ~final:
+          (match ir with
+           | Eq _ -> [ idx 0 ]
+           | Leq _ -> states |> Map.filter_keys ~f:(fun x -> x >= 0) |> Map.data)
+        ~vars:(List.map fst term)
+        ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
+      |> fun x ->
+      Debug.dump_nfa ~msg:"Build (L)Eq Nfa: %s" ~vars:(Map.to_alist vars) Nfa.format_nfa x;
+      x
   ;;
 end
 

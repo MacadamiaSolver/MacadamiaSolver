@@ -32,13 +32,11 @@ module Eia = struct
         (Map.to_alist term)
   ;;
 
+  let neg (Sum sum) = Sum (Map.map ~f:( ~- ) sum)
+
   type ir =
     | Eq of t * int
-    | Lt of
-        t * int (* TODO: this might be simplified when negative integers will be added. *)
     | Leq of t * int
-    | Gt of t * int
-    | Geq of t * int
   [@@deriving variants, show]
 
   let map_ir f = function
@@ -53,20 +51,18 @@ module Eia = struct
   let pp_ir fmt = function
     | Eq (term, c) -> Format.fprintf fmt "%a = %d" pp term c
     | Leq (term, c) -> Format.fprintf fmt "%a <= %d" pp term c
-    | Lt (term, c) -> Format.fprintf fmt "%a <= %d" pp term c
-    | Geq (term, c) -> Format.fprintf fmt "%a >= %d" pp term c
-    | Gt (term, c) -> Format.fprintf fmt "%a > %d" pp term c
   ;;
 
   let equal formula formula' =
     match formula, formula' with
-    | Eq (Sum term, c), Eq (Sum term', c')
-    | Leq (Sum term, c), Leq (Sum term', c')
-    | Geq (Sum term, c), Geq (Sum term', c')
-    | Lt (Sum term, c), Lt (Sum term', c')
-    | Gt (Sum term, c), Gt (Sum term', c') -> Map.equal ( = ) term term' && c = c'
+    | Eq (Sum term, c), Eq (Sum term', c') | Leq (Sum term, c), Leq (Sum term', c') ->
+      Map.equal ( = ) term term' && c = c'
     | _, _ -> false
   ;;
+
+  let lt t c = leq t (pred c)
+  let geq t c = leq (neg t) (-c)
+  let gt t c = leq (neg t) (pred ~-c)
 end
 
 (** Bitvectors. *)
