@@ -1,22 +1,19 @@
-# Chrobelias - Chrobak exponential linear integer arithmetic solver
+# Chrobelias - Chrobak normal form-based Exponential Linear Integer Arithmetic Solver
 
-__Chrobelias__ is a theorem prover (SMT-solver) for deciding existential exponential linear integer arithmetic based on the finite-automata approach for deciding (i.e. [existential Semёnov arithmetic](https://arxiv.org/abs/2306.14593), existential theory of `<N, 2**x, +, =>`).
+__ChrobELIAS__ is a theorem prover (SMT-solver) for deciding existential **E**xponential-**L**inear **I**nteger **A**rithmetic with regular constraints $\langle\mathbb{N}; 0, 1, +, x\mapsto 2^x, \mathscr{R}, =,\leq\rangle$. The prover is based on automata theory (see [existential generalised Semёnov arithmetic](https://arxiv.org/abs/2306.14593)) and uses Chrobak Normal Form of sub-NFAs to linearise exponential occurrences of the variables. 
 
-## Dependencies
-To build the project you'll need these dependencies to be installed:
+## Building
+To build the project you need the following dependencies to be installed:
 - OPam - OCaml package manager.
 - OCaml >5.0.
 
-You may install the dependencies using the following bash commands:
+The dependencies can be installed using the bash commands
 ```bash
-# This would install OCaml package manager and the OCaml 5.2 itself.
+# Installing OCaml package manager and OCaml 5.2.
 bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
 opam switch create 5.2.0+flambda --packages=ocaml-variants.5.2.0+options,ocaml-option-flambda --yes
 ```
-
-## Building
-
-The Chrobelias prover can be built like this:
+ChrobELIAS is built as follows:
 
 ```bash
 # Installing project dependencies.
@@ -30,13 +27,13 @@ The executable binary is available in the `_build` dir.
 
 ## Usage
 
-You might execute `.smt2` files in `LIA` or custom exponent arithmetic with Chrobelias that's defined with `ALL` in .smt2. Later allows you to use custom `exp` functional symbol.
+Supports `.smt2` files in `QF_LIA` and exponents via the binary `exp` function symbol.
 
 ```bash
 ./_build/default/bin/chro.exe <path-to-smt2-file>
 ```
 
-There are a few `.smt2` examples available within the `examples` dir.
+Simple `.smt2` files for ChrobELIAS can be found in [examples](https://github.com/Chrobelias/Chrobelias/tree/main/examples).
 
 ```bash
 # Frobenius coin problem for 7 11 13
@@ -48,17 +45,16 @@ There are a few `.smt2` examples available within the `examples` dir.
 
 ## Chrobelias REPL
 
-Chrobelias offers CLI REPL for experimenting. It allows defining predicates, proving theorems, and visualizing the automaton the solver builds. By default opam builds an executable in `./_build/default/bin/chro_repl.exe`. Starting it up brings you to REPL for evaluating theorem proving. We strongly encourage you to run it the following way.
+Chrobelias offers CLI REPL for experimenting. It allows defining predicates, proving theorems, and visualizing the automata which are built during the execution. By default, opam builds an executable in `./_build/default/bin/chro_repl.exe`. By starting it, you are redirected to REPL for theorem proving: 
 
 ```bash
 ledit ./_build/default/bin/chro_repl.exe
 ```
 
 Using common unix `ledit` allows navigating through the input and switching the history of executed commands.
+You can list the examples and the information on the usage of REPL via the `help` command.
 
-You might list the examples and information on how to use the REPL using the `help` commands.
-
-Chrobelias uses the syntax defined by the following grammar rules for expression first-order logic statements:
+For the first-order formulas, the prover uses the following syntax: 
 
 ```
 formula := (formula)
@@ -90,8 +86,11 @@ term := (term)
 var := [a-z_][a-z_0-9]*
 const := [0-9]+
 ```
+Universal quantifiers are only allowed when 
+- all universally quantified variables have only linear occurrences in the formula;
+- there is no existential quantifier over a variable with exponential occurrences within the scope of a universal quantifier. 
 
-Example usages:
+Examples:
 ```
 > eval Ax Ey x = y + 1
   sat
