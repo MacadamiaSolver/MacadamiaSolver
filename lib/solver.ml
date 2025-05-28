@@ -285,11 +285,6 @@ let dump f =
   Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize)
 ;;
 
-let is_exp = function
-  | Ir.Pow2 _ -> true
-  | Ir.Var _ | Ir.Internal _ -> false
-;;
-
 let log2 n =
   let rec helper acc = function
     | 0 -> acc
@@ -310,13 +305,14 @@ let gen_list_n n =
 
 let get_exp = function
   | Ir.Pow2 var -> Ir.var var
+  | Ir.MulPow2 _ -> failwith "Expected exponent"
   | Ir.Var _ | Ir.Internal _ -> failwith "Expected exponent, found var"
 ;;
 
-let to_exp = function
-  | Ir.Pow2 _ -> failwith "Expected var"
-  | Ir.Var var | Ir.Internal var -> Ir.pow2 var
-;;
+type order =
+  | Solvable of Ir.atom list
+  | Unknown of Ir.atom list
+[@@deriving variants]
 
 let decide_order vars =
   let rec perms list =
@@ -338,33 +334,36 @@ let decide_order vars =
   |> List.filter (fun perm ->
     Base.List.for_alli
       ~f:(fun i var ->
-        if is_exp var
-        then (
-          let x = get_exp var in
-          List.find_index (fun y -> x = y) perm |> Option.value ~default:9999999 > i)
-        else true)
+        (not (Ir.is_pow2 var))
+        ||
+        let x = get_exp var in
+        List.find_index (fun y -> x = y) perm |> Option.value ~default:Int.max_int > i)
       perm)
   |> List.filter (fun perm ->
     Base.List.for_alli
       ~f:(fun exi ex ->
-        if is_exp ex
-        then (
+        match ex with
+        | Ir.Pow2 _ ->
           let x = get_exp ex in
-          match List.find_index (fun x' -> x = x') perm with
-          | Some xi ->
-            Base.List.for_alli
-              ~f:(fun eyi ey ->
-                if is_exp ey && eyi > exi
-                then (
-                  let y = get_exp ey in
-                  match List.find_index (fun y' -> y = y') perm with
-                  | Some yi -> yi > xi
-                  | None -> true)
-                else true)
-              perm
-          | None -> true)
-        else true)
+          (match List.find_index (fun x' -> x = x') perm with
+           | Some xi ->
+             Base.List.for_alli
+               ~f:(fun eyi ey ->
+                 if Ir.is_pow2 ey && eyi > exi
+                 then (
+                   let y = get_exp ey in
+                   match List.find_index (fun y' -> y = y') perm with
+                   | Some yi -> yi > xi
+                   | None -> true)
+                 else true)
+               perm
+           | None -> true)
+        | Ir.Var _ | Ir.Internal _ | Ir.MulPow2 _ -> true)
       perm)
+  |> List.map (fun perm ->
+    if Base.List.for_alli ~f:(fun exi ex -> failwith "TODO(timafrolov)") perm
+    then Solvable perm
+    else Unknown perm)
 ;;
 
 let nfa_for_exponent2 s var var2 chrob =
@@ -466,7 +465,12 @@ let project_exp s nfa x next =
   Debug.dump_nfa ~msg:"Nfa inside project_exp: %s" Nfa.format_nfa nfa;
   let get_deg = Map.find_exn s.vars in
   let x' = get_exp x in
-  if is_exp next
+  if
+    (function
+      | Ir.Pow2 _ -> true
+      | Ir.MulPow2 _ -> failwith "TODO(timafrolov)"
+      | Ir.Var _ | Ir.Internal _ -> false)
+      next
   then
     nfa
     |> Nfa.get_chrobaks_sub_nfas
@@ -512,64 +516,76 @@ let proof_order return project s nfa order =
     | [] -> return s nfa model
     | x :: [] -> return s (project (get_deg x) nfa) model
     | x :: (next :: _ as tl) ->
-      if not (is_exp x)
-      then helper (project (get_deg x) nfa) tl model
-      else (
-        let deg = (Map.max_elt_exn s.vars |> snd) + 2 in
-        let x' = get_exp x in
-        let zero_nfa =
-          Nfa.intersect
-            (NfaCollection.eq_const (get_deg x) 1)
-            (NfaCollection.eq_const (get_deg x') 0)
-          |> Nfa.truncate deg
-          |> Nfa.intersect nfa
-          |> project (get_deg x)
-        in
-        Debug.printf "Zero nfa for %a: " Ir.pp_atom x;
-        Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
-        match helper zero_nfa tl model with
-        | Some _ as res -> res
-        | None ->
-          project_exp s nfa x next
-          |> Seq.map (fun (nfa, model_part) ->
-            helper (Nfa.minimize (project (get_deg x) nfa)) tl (model_part :: model))
-          |> Seq.find_map Fun.id)
+      (match x with
+       | Ir.Var _ | Ir.Internal _ -> helper (project (get_deg x) nfa) tl model
+       | Ir.MulPow2 _ -> failwith "TODO(timafrolov)"
+       | Ir.Pow2 _ ->
+         let deg = (Map.max_elt_exn s.vars |> snd) + 2 in
+         let x' = get_exp x in
+         let zero_nfa =
+           Nfa.intersect
+             (NfaCollection.eq_const (get_deg x) 1)
+             (NfaCollection.eq_const (get_deg x') 0)
+           |> Nfa.truncate deg
+           |> Nfa.intersect nfa
+           |> project (get_deg x)
+         in
+         Debug.printf "Zero nfa for %a: " Ir.pp_atom x;
+         Debug.dump_nfa ~msg:"%s" Nfa.format_nfa zero_nfa;
+         (match helper zero_nfa tl model with
+          | Some _ as res -> res
+          | None ->
+            project_exp s nfa x next
+            |> Seq.map (fun (nfa, model_part) ->
+              helper (Nfa.minimize (project (get_deg x) nfa)) tl (model_part :: model))
+            |> Seq.find_map Fun.id))
   in
   helper nfa order []
 ;;
 
 let prepare_order s nfa order =
-  Debug.printfln
-    "Trying order %a"
-    (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ") Ir.pp_atom)
-    (order |> List.rev);
-  let len = List.length order in
-  let nfa =
-    if len <= 1
-    then nfa
-    else (
-      let order_nfa, order_vars =
-        eval
-          (Seq.zip
-             (order |> List.to_seq |> Seq.take (len - 1))
-             (order |> List.to_seq |> Seq.drop 1)
-           |> Seq.map (fun (x, y) ->
-             let term = [ x, 1; y, -1 ] |> Map.of_alist_exn in
-             Ir.Eia (Ir.Eia.geq (Ir.Eia.sum term) 0))
-           |> List.of_seq
-           |> function
-           | [] -> failwith ""
-           | comps -> Ir.land_ comps)
-      in
-      let order_nfa =
-        order_nfa
-        |> Nfa.reenumerate
-             (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn s.vars k))
-      in
-      Nfa.intersect nfa order_nfa |> Nfa.minimize)
-  in
-  Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
-  order, nfa
+  match order with
+  | Solvable order' | Unknown order' ->
+    Debug.printfln
+      "Trying order %a"
+      (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.fprintf ppf " <= ") Ir.pp_atom)
+      (order' |> List.rev);
+    let len = List.length order' in
+    let nfa =
+      if len <= 1
+      then nfa
+      else (
+        let order_nfa, order_vars =
+          eval
+            (Seq.zip
+               (order' |> List.to_seq |> Seq.take (len - 1))
+               (order' |> List.to_seq |> Seq.drop 1)
+             |> Seq.map (fun (x, y) ->
+               let term = [ x, 1; y, -1 ] |> Map.of_alist_exn in
+               Ir.Eia (Ir.Eia.geq (Ir.Eia.sum term) 0))
+             |> List.of_seq
+             |> function
+             | [] -> failwith ""
+             | comps -> Ir.land_ comps)
+        in
+        let order_nfa =
+          order_nfa
+          |> Nfa.reenumerate
+               (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn s.vars k))
+        in
+        Nfa.intersect nfa order_nfa |> Nfa.minimize)
+    in
+    Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
+    order, nfa
+;;
+
+let rec lazy_fold f acc s =
+  match Seq.find (fun _ -> true) s with
+  | None -> acc
+  | Some t ->
+    (match f acc t with
+     | `Terminate x -> x
+     | `Continue x -> lazy_fold f x (Seq.drop 1 s))
 ;;
 
 let eval_semenov return next formula =
@@ -587,14 +603,19 @@ let eval_semenov return next formula =
        limitations of the algorithm.\n\
        %!"; *)
   let vars = collect_vars formula in
+  let memExp vars var =
+    match var with
+    | Ir.Pow2 _ | Ir.MulPow2 _ -> true
+    | Ir.Var var | Ir.Internal var ->
+      Map.mem vars (Ir.Pow2 var)
+      || Map.existsi vars ~f:(fun ~key ~data:_ ->
+        match key with
+        | Ir.MulPow2 (lhs, rhs) -> var = lhs || var = rhs
+        | Ir.Var _ | Ir.Internal _ | Ir.Pow2 _ -> false)
+  in
   let formula =
     formula
-    |> (fun ir ->
-    Ir.exists
-      (vars
-       |> Map.keys
-       |> List.filter (fun var -> (not (is_exp var)) && not (Map.mem vars (to_exp var))))
-      ir)
+    |> Ir.exists (vars |> Map.keys |> List.filter (Fun.negate (memExp vars)))
     |> simpl_ir
   in
   let nfa, vars = eval formula in
@@ -608,7 +629,9 @@ let eval_semenov return next formula =
     Map.fold
       ~init:nfa
       ~f:(fun ~key:k ~data:v acc ->
-        if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
+        match k with
+        | Ir.Pow2 _ -> Nfa.intersect acc (NfaCollection.power_of_two v)
+        | Ir.Var _ | Ir.Internal _ | Ir.MulPow2 _ -> acc)
       vars
   in
   Debug.dump_nfa
@@ -618,12 +641,7 @@ let eval_semenov return next formula =
     nfa;
   let nfa =
     Map.fold
-      ~f:(fun ~key:k ~data:v acc ->
-        if is_exp k
-        then acc
-        else if Map.mem vars (to_exp k) |> not
-        then Nfa.project [ v ] acc
-        else acc)
+      ~f:(fun ~key:k ~data:v acc -> if memExp vars k then acc else Nfa.project [ v ] acc)
       ~init:nfa
       vars
   in
@@ -638,24 +656,23 @@ let eval_semenov return next formula =
     ~vars:(Map.to_alist vars)
     Nfa.format_nfa
     nfa;
-  let powered_vars =
-    Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars (to_exp k)) vars
-  in
+  let powered_vars = Map.filteri ~f:(fun ~key:k ~data:_ -> memExp vars k) vars in
   let s = { vars = powered_vars } in
   decide_order powered_vars
   |> List.to_seq
   |> Seq.map (prepare_order s nfa)
-  |> Seq.filter (function order, nfa ->
+  |> Seq.filter (function Solvable order, nfa | Unknown order, nfa ->
       nfa
       |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
       |> Nfa.run)
-  |> Seq.map (fun (order, nfa) -> proof_order return next s nfa order)
-  |> Seq.find (function
-    | Some _ -> true
-    | None -> false)
-  |> function
-  | Some x -> x
-  | None -> None
+  |> Seq.map (function (Solvable order as ord), nfa | (Unknown order as ord), nfa ->
+      is_solvable ord, proof_order return next s nfa order)
+  |> lazy_fold
+       (fun acc -> function
+          | _, Some x -> `Terminate (`Sat x)
+          | true, None -> `Continue `Unknown
+          | false, None -> `Continue acc)
+       `Unsat
 ;;
 
 let proof_semenov f =
@@ -665,8 +682,9 @@ let proof_semenov f =
          (fun _ nfa _ -> if Nfa.run nfa then Some () else None)
          (fun x nfa -> Nfa.project [ x ] nfa)
   with
-  | Some _ -> `Sat
-  | None -> `Unsat
+  | `Sat () -> `Sat
+  | `Unknown -> `Unknown
+  | `Unsat -> `Unsat
 ;;
 
 let get_model_normal f =
@@ -688,7 +706,7 @@ let get_model_semenov f =
          (fun _ nfa -> nfa)
   in
   match res with
-  | Some (s, model, models) ->
+  | `Sat (s, model, models) ->
     let rec thing = function
       | [] -> failwith "unreachable"
       | [ (model, _) ] -> model
@@ -706,7 +724,12 @@ let get_model_semenov f =
       |> List.mapi (fun i v -> List.nth (Map.keys s.vars) i, v)
       |> Map.of_alist_exn
     in
-    let map = Map.filter_keys map ~f:(fun key -> not (is_exp key)) in
+    let map =
+      Map.filter_keys map ~f:(fun key ->
+        match key with
+        | Ir.Pow2 _ | Ir.MulPow2 _ -> false
+        | Ir.Var _ | Ir.Internal _ -> true)
+    in
     let f =
       f
       |> Ir.map (function
@@ -717,7 +740,7 @@ let get_model_semenov f =
             let filter =
               fun k ->
               match k with
-              | Ir.Pow2 _ -> true
+              | Ir.Pow2 _ | Ir.MulPow2 _ -> true
               | Ir.Var _ -> Map.mem map k
               | Ir.Internal _ -> failwith "Unexpected"
             in
@@ -729,6 +752,8 @@ let get_model_semenov f =
                 v
                 *
                   match k with
+                  | Ir.MulPow2 (lhs, rhs) ->
+                    pow2 (Map.find_exn map (Ir.Var lhs)) * Map.find_exn map (Ir.Var rhs)
                   | Ir.Pow2 x -> pow2 (Map.find_exn map (Ir.Var x))
                   | Ir.Var _ -> Map.find_exn map k
                   | Ir.Internal _ -> failwith "Unexpected")
@@ -749,12 +774,19 @@ let get_model_semenov f =
       | `Right x -> Some x
       | `Both _ -> failwith "Should be unreachable")
     |> Option.some
-  | None -> None
+  | `Unknown | `Unsat -> None
+;;
+
+let run_semenov ir =
+  collect_vars ir
+  |> Map.keys
+  |> List.exists (function
+    | Ir.Pow2 _ | Ir.MulPow2 _ -> true
+    | Ir.Var _ | Ir.Internal _ -> false)
 ;;
 
 let proof ir =
-  let run_semenov = collect_vars ir |> Map.keys |> List.exists is_exp in
-  if run_semenov
+  if run_semenov ir
   then proof_semenov ir
   else (
     (*let f = Optimizer.optimize f in
@@ -766,10 +798,7 @@ let proof ir =
     if Nfa.run nfa then `Sat else `Unsat)
 ;;
 
-let get_model f =
-  let run_semenov = collect_vars f |> Map.keys |> List.exists is_exp in
-  if run_semenov then get_model_semenov f else get_model_normal f
-;;
+let get_model f = if run_semenov f then get_model_semenov f else get_model_normal f
 
 (*
    let%expect_test "Proof any x > 7 can be represented as a linear combination of 3 and 5" =

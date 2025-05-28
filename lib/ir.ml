@@ -7,6 +7,7 @@ type atom =
   | Var of string
   | Internal of string
   | Pow2 of string
+  | MulPow2 of string * string
 [@@deriving variants]
 
 let internal () = internal (Random.int (Int.max_int / 2) |> string_of_int)
@@ -15,6 +16,7 @@ let pp_atom fmt = function
   | Var var -> Format.fprintf fmt "%s" var
   | Internal var -> Format.fprintf fmt "[%s]" var
   | Pow2 var -> Format.fprintf fmt "pow2(%s)" var
+  | MulPow2 (lhs, rhs) -> Format.fprintf fmt "pow2(%s)*%s" lhs rhs
 ;;
 
 (** Exponential integer arithmetic, i.e. LIA with exponents.*)
