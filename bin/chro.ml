@@ -43,20 +43,32 @@ module Conv = struct
       `Symbol var
     (* Semenov arithmetic, i.e. 2**x operators. *)
     | Expr.App ({ name = Symbol.Simple "pow2"; _ }, [ expr ]) ->
-      let atom =
+      let atom, assertions =
         match expr |> _to_ir with
-        | `Symbol symbol -> symbol
+        | `Symbol symbol -> symbol, []
+        | `Eia (Ir.Eia.Sum term, c, assertions) ->
+          let varname = Random.bits () |> Int.to_string in
+          let var = Ir.var varname in
+          let term = Map.add_exn ~key:var ~data:(-1) term in
+          let eia_formula = Ir.Eia.eq (Ir.Eia.sum term) (-c) in
+          varname, Ir.eia eia_formula :: assertions
         | _ -> failwith "Semenov now only supports vars as an exponent"
       in
-      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, [])
+      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, assertions)
     | Expr.App ({ name = Symbol.Simple "exp"; _ }, [ base; expr ])
       when base = Expr.value (Value.Int 2) ->
-      let atom =
+      let atom, assertions =
         match expr |> _to_ir with
-        | `Symbol symbol -> symbol
+        | `Symbol symbol -> symbol, []
+        | `Eia (Ir.Eia.Sum term, c, assertions) ->
+          let varname = Random.int Int.max_int |> Int.to_string in
+          let var = Ir.var varname in
+          let term = Map.add_exn ~key:var ~data:(-1) term in
+          let eia_formula = Ir.Eia.eq (Ir.Eia.sum term) (-c) in
+          varname, Ir.eia eia_formula :: assertions
         | _ -> failwith "Semenov now only supports vars as an exponent"
       in
-      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, [])
+      `Eia (Ir.Eia.sum (Map.singleton (Ir.pow2 atom) 1), 0, assertions)
     (* Arithmetic operations. *)
     | Expr.Unop (_ty, Ty.Unop.Neg, expr) -> begin
       match expr |> _to_ir with
