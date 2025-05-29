@@ -147,78 +147,114 @@ module Eia = struct
     |> List.map (fun (a, x) -> a, Base.List.sum (module Base.Int) ~f:Fun.id x)
   ;;
 
+  let rec gcd a b =
+    if a < 0 || b < 0 then gcd (abs a) (abs b) else if b = 0 then a else gcd b (a mod b)
+  ;;
+
+  let div a b = if a mod b >= 0 then a / b else (a / b) - 1
+
   let eval vars ir =
     match ir with
     | Eq (Sum term, c) | Leq (Sum term, c) ->
-      let term = Map.map_keys_exn ~f:(Map.find_exn vars) term |> Map.to_alist in
-      let thing = powerset term in
-      Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
-      Debug.printfln
-        "thing:[%a]"
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-           (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
-        thing;
-      let states = ref Set.empty in
-      let transitions = ref [] in
-      let rec lp front =
-        match front with
-        | [] -> ()
-        | hd :: tl ->
-          if Set.mem !states hd
-          then lp tl
-          else begin
-            let t =
-              match ir with
-              | Eq _ ->
-                thing
-                |> List.filter (fun (_, sum) -> (hd - sum) mod 2 = 0)
-                |> List.map (fun (bits, sum) -> hd, bits, (hd - sum) / 2)
-              | Leq _ ->
-                thing
-                |> List.map (fun (bits, sum) ->
-                  ( hd
-                  , bits
-                  , match (hd - sum) mod 2 with
-                    | 0 | 1 -> (hd - sum) / 2
-                    | -1 -> ((hd - sum) / 2) - 1
-                    | _ -> failwith "Should be unreachable" ))
-            in
-            Debug.printfln
-              "hd:%d, t:[%a]"
-              hd
-              (Format.pp_print_list
-                 ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-                 (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
-              t;
-            states := Set.add !states hd;
-            transitions := t @ !transitions;
-            lp (List.map (fun (_, _, x) -> x) t @ tl)
-          end
+      let term =
+        Map.map_keys_exn ~f:(Map.find_exn vars) term
+        |> Map.to_alist
+        |> List.filter (fun (_, v) -> v <> 0)
       in
-      lp [ c ];
-      let states = Set.to_list !states in
-      Debug.printfln
-        "states:[%a]"
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-           (fun fmt a -> Format.fprintf fmt "%d" a))
-        states;
-      let states = states |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn in
-      let idx c = Map.find states c |> Option.get in
-      let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
-      Nfa.create_nfa
-        ~transitions
-        ~start:[ idx c ]
-        ~final:
+      let gcd = List.fold_left (fun acc (_, data) -> gcd data acc) 0 term in
+      if gcd = 0
+      then
+        if
+          match ir with
+          | Eq _ -> 0 = c
+          | Leq _ -> 0 <= c
+        then NfaCollection.Msb.n ()
+        else NfaCollection.Msb.z ()
+      else (
+        let thing = powerset term in
+        Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
+        Debug.printfln
+          "thing:[%a]"
+          (Format.pp_print_list
+             ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+             (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
+          thing;
+        let states = ref Set.empty in
+        let transitions = ref [] in
+        let rec lp front =
+          match front with
+          | [] -> ()
+          | hd :: tl ->
+            if Set.mem !states hd
+            then lp tl
+            else begin
+              let t =
+                match ir with
+                | Eq _ ->
+                  thing
+                  |> List.filter (fun (_, sum) -> (hd - sum) mod (2 * gcd) = 0)
+                  |> List.map (fun (bits, sum) -> div (hd - sum) 2, bits, hd)
+                | Leq _ ->
+                  thing
+                  |> List.map (fun (bits, sum) ->
+                    gcd * div (hd - sum) (2 * gcd), bits, hd)
+              in
+              Debug.printfln
+                "hd:%d, t:[%a]"
+                hd
+                (Format.pp_print_list
+                   ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+                   (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
+                t;
+              states := Set.add !states hd;
+              transitions := t @ !transitions;
+              lp (List.map (fun (x, _, _) -> x) t @ tl)
+            end
+        in
+        lp [ c ];
+        let states = Set.to_list !states in
+        Debug.printfln
+          "states:[%a]"
+          (Format.pp_print_list
+             ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+             (fun fmt a -> Format.fprintf fmt "%d" a))
+          states;
+        let start = List.length states in
+        let states = states |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn in
+        let idx c = Map.find states c |> Option.get in
+        let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
+        let transitions =
           (match ir with
-           | Eq _ -> [ idx 0 ]
-           | Leq _ -> states |> Map.filter_keys ~f:(fun x -> x >= 0) |> Map.data)
-        ~vars:(List.map fst term)
-        ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
-      |> fun x ->
-      Debug.dump_nfa ~msg:"Build (L)Eq Nfa: %s" ~vars:(Map.to_alist vars) Nfa.format_nfa x;
-      x
+           | Eq _ ->
+             thing
+             |> List.filter_map (fun (d, sum) ->
+               match Map.find states (-sum) with
+               | None -> None
+               | Some v -> Some (start, d, v))
+           | Leq _ ->
+             thing
+             |> List.concat_map (fun (d, sum) ->
+               Map.to_alist states
+               |> List.filter_map (fun (v, idv) ->
+                 if -sum <= v then Some (start, d, idv) else None)))
+          @ transitions
+        in
+        Nfa.Msb.create_nfa
+          ~transitions
+          ~start:[ start ]
+          ~final:
+            (match ir with
+             | Eq _ -> [ idx c ]
+             | Leq _ -> states |> Map.filter_keys ~f:(fun x -> x <= c) |> Map.data)
+          ~vars:(List.map fst term)
+          ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
+        |> fun x ->
+        Debug.dump_nfa
+          ~msg:"Build (L)Eq Nfa: %s"
+          ~vars:(Map.to_alist vars)
+          Nfa.Msb.format_nfa
+          x;
+        x)
   ;;
 end
 
@@ -258,6 +294,8 @@ module Bv = struct
 end
 
 let eval ir =
+  let module Nfa = Nfa.Msb in
+  let module NfaCollection = NfaCollection.Msb in
   let ir = simpl_ir ir in
   let vars = collect_vars ir in
   let rec eval = function
@@ -281,6 +319,7 @@ let eval ir =
 ;;
 
 let dump f =
+  let module Nfa = Nfa.Msb in
   let nfa, _ = eval f in
   Format.asprintf "%a" Nfa.format_nfa (nfa |> Nfa.minimize)
 ;;
@@ -368,6 +407,8 @@ let decide_order vars =
 ;;
 
 let nfa_for_exponent2 s var var2 chrob =
+  let module Nfa = Nfa.MsbNat in
+  let module NfaCollection = NfaCollection.MsbNat in
   chrob
   |> List.map (fun (a, c) ->
     let old_internal_counter = !internal_counter in
@@ -394,6 +435,8 @@ let nfa_for_exponent2 s var var2 chrob =
 ;;
 
 let nfa_for_exponent s var newvar chrob =
+  let module Nfa = Nfa.MsbNat in
+  let module NfaCollection = NfaCollection.MsbNat in
   chrob
   |> List.concat_map (fun (a, c) ->
     if c = 0
@@ -463,6 +506,8 @@ let%expect_test "Useless quantifier remove" =
 *)
 
 let project_exp s nfa x next =
+  let module Nfa = Nfa.MsbNat in
+  let module NfaCollection = NfaCollection.MsbNat in
   Debug.dump_nfa ~msg:"Nfa inside project_exp: %s" Nfa.format_nfa nfa;
   let get_deg = Map.find_exn s.vars in
   let x' = get_exp x in
@@ -505,6 +550,8 @@ let project_exp s nfa x next =
 ;;
 
 let proof_order return project s nfa order =
+  let module Nfa = Nfa.MsbNat in
+  let module NfaCollection = NfaCollection.MsbNat in
   let get_deg = Map.find_exn s.vars in
   let rec helper nfa order model =
     Debug.dump_nfa ~msg:"Nfa inside proof_order: %s" Nfa.format_nfa nfa;
@@ -563,12 +610,13 @@ let prepare_order s nfa order =
       in
       let order_nfa =
         order_nfa
-        |> Nfa.reenumerate
+        |> Nfa.to_nat
+        |> Nfa.MsbNat.reenumerate
              (order_vars |> Map.map_keys_exn ~f:(fun k -> Map.find_exn s.vars k))
       in
-      Nfa.intersect nfa order_nfa |> Nfa.minimize)
+      Nfa.MsbNat.intersect nfa order_nfa |> Nfa.MsbNat.minimize)
   in
-  Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.format_nfa nfa;
+  Debug.dump_nfa ~msg:"NFA taking order into account: %s" Nfa.MsbNat.format_nfa nfa;
   order, nfa
 ;;
 
@@ -598,23 +646,23 @@ let eval_semenov return next formula =
     |> simpl_ir
   in
   let nfa, vars = eval formula in
-  let nfa = Nfa.minimize nfa in
+  let nfa = Nfa.Msb.minimize nfa in
   Debug.dump_nfa
     ~msg:"Minimized raw original nfa: %s"
     ~vars:(Map.to_alist vars)
-    Nfa.format_nfa
+    Nfa.Msb.format_nfa
     nfa;
   let nfa =
     Map.fold
       ~init:nfa
       ~f:(fun ~key:k ~data:v acc ->
-        if is_exp k then Nfa.intersect acc (NfaCollection.power_of_two v) else acc)
+        if is_exp k then Nfa.Msb.intersect acc (NfaCollection.Msb.power_of_two v) else acc)
       vars
   in
   Debug.dump_nfa
     ~msg:"Minimized raw2 original nfa: %s"
     ~vars:(Map.to_alist vars)
-    Nfa.format_nfa
+    Nfa.Msb.format_nfa
     nfa;
   let nfa =
     Map.fold
@@ -622,7 +670,7 @@ let eval_semenov return next formula =
         if is_exp k
         then acc
         else if Map.mem vars (to_exp k) |> not
-        then Nfa.project [ v ] acc
+        then Nfa.Msb.project [ v ] acc
         else acc)
       ~init:nfa
       vars
@@ -630,13 +678,13 @@ let eval_semenov return next formula =
   Debug.dump_nfa
     ~msg:"Minimized raw3 original nfa: %s"
     ~vars:(Map.to_alist vars)
-    Nfa.format_nfa
+    Nfa.Msb.format_nfa
     nfa;
-  let nfa = Nfa.minimize nfa in
+  let nfa = nfa |> Nfa.to_nat |> Nfa.MsbNat.minimize in
   Debug.dump_nfa
     ~msg:"Minimized original nfa: %s"
     ~vars:(Map.to_alist vars)
-    Nfa.format_nfa
+    Nfa.MsbNat.format_nfa
     nfa;
   let powered_vars =
     Map.filteri ~f:(fun ~key:k ~data:_ -> is_exp k || Map.mem vars (to_exp k)) vars
@@ -646,9 +694,11 @@ let eval_semenov return next formula =
   |> List.to_seq
   |> Seq.map (prepare_order s nfa)
   |> Seq.filter (function order, nfa ->
-      nfa
-      |> Nfa.project (order |> List.map (fun str -> Map.find_exn s.vars str))
-      |> Nfa.run)
+      let nfa =
+        nfa |> Nfa.MsbNat.project (order |> List.map (fun str -> Map.find_exn s.vars str))
+      in
+      Debug.dump_nfa ~msg:"Checking if solvable: %s" Nfa.MsbNat.format_nfa nfa;
+      nfa |> Nfa.MsbNat.run)
   |> Seq.map (fun (order, nfa) -> proof_order return next s nfa order)
   |> Seq.find (function
     | Some _ -> true
@@ -662,8 +712,8 @@ let proof_semenov f =
   match
     f
     |> eval_semenov
-         (fun _ nfa _ -> if Nfa.run nfa then Some () else None)
-         (fun x nfa -> Nfa.project [ x ] nfa)
+         (fun _ nfa _ -> if Nfa.MsbNat.run nfa then Some () else None)
+         (fun x nfa -> Nfa.MsbNat.project [ x ] nfa)
   with
   | Some _ -> `Sat
   | None -> `Unsat
@@ -672,7 +722,7 @@ let proof_semenov f =
 let get_model_normal f =
   let nfa, vars = f |> eval in
   let free_vars = f |> collect_free |> Set.to_list in
-  Nfa.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars)
+  Nfa.Msb.any_path nfa (List.map (fun v -> Map.find_exn vars v) free_vars)
   |> Option.map (fun (model, _) ->
     model |> List.mapi (fun i v -> List.nth free_vars i, v) |> Map.of_alist_exn)
 ;;
@@ -682,7 +732,7 @@ let get_model_semenov f =
     f
     |> eval_semenov
          (fun s nfa model ->
-            match Nfa.any_path nfa (Map.data s.vars) with
+            match Nfa.MsbNat.any_path nfa (Map.data s.vars) with
             | Some path -> Some (s, path, model)
             | None -> None)
          (fun _ nfa -> nfa)
@@ -762,8 +812,8 @@ let proof ir =
     let free_vars = collect_free ir in
     let ir = Ir.exists (free_vars |> Set.to_list) ir in
     let nfa, _ = ir |> eval in
-    Debug.dump_nfa ~msg:"resulting nfa: %s" Nfa.format_nfa nfa;
-    if Nfa.run nfa then `Sat else `Unsat)
+    Debug.dump_nfa ~msg:"resulting nfa: %s" Nfa.Msb.format_nfa nfa;
+    if Nfa.Msb.run nfa then `Sat else `Unsat)
 ;;
 
 let get_model f =
