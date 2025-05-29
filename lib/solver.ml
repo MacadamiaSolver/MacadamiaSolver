@@ -49,6 +49,85 @@ let collect_free ir =
     ir
 ;;
 
+type bound = EqConst of Ir.atom * int
+
+let algebraic =
+  let rec infer_bounds = function
+    | Ir.Land irs ->
+      let bounds = List.map infer_bounds irs in
+      Set.union_list bounds
+    | Ir.Lor irs ->
+      let bounds = List.map infer_bounds irs in
+      begin
+        match bounds with
+        | hd :: tl -> List.fold_left Set.inter hd tl
+        | _ -> Set.empty
+      end
+    | True -> Set.empty
+    | Eia eia -> begin
+      match eia with
+      | Ir.Eia.Eq (Ir.Eia.Sum term, c)
+        when Map.length term = 1 && Map.nth_exn term 0 |> snd = 1 && c < 256 ->
+        let bound = EqConst (Map.nth_exn term 0 |> fst, c) in
+        Set.singleton bound
+      | _ -> Set.empty
+    end
+    | Bv _ -> Set.empty
+    | Ir.Lnot _ -> Set.empty
+    | Exists _ -> Set.empty
+    | Pred _ -> Set.empty
+  in
+  let apply_bounds bounds =
+    Ir.map (function
+      | Ir.Eia (Ir.Eia.Eq (Ir.Eia.Sum term, c) as eia)
+      | Ir.Eia (Ir.Eia.Leq (Ir.Eia.Sum term, c) as eia)
+        when Map.length term <> 1 -> begin
+        let atoms = Map.keys term in
+        let bounded_atoms =
+          List.filter_map
+            (fun atom ->
+               let atom_bound =
+                 Set.find
+                   ~f:(fun bound ->
+                     match bound with
+                     | EqConst (atom', _) when atom = atom' -> true
+                     | _ -> false)
+                   bounds
+               in
+               begin
+                 match atom_bound with
+                 | Some (EqConst (atom, c)) -> Some (atom, c)
+                 | None -> None
+               end)
+            atoms
+          |> Map.of_alist_exn
+        in
+        let build =
+          match eia with
+          | Ir.Eia.Eq _ -> Ir.Eia.eq
+          | Ir.Eia.Leq _ -> Ir.Eia.leq
+        in
+        let c =
+          Map.to_alist term
+          |> List.fold_left
+               (fun acc (atom, a) ->
+                  match Map.find bounded_atoms atom with
+                  | Some c' -> acc - (c' * a)
+                  | None -> acc)
+               c
+        in
+        let term =
+          Map.filter_keys ~f:(fun atom -> Map.mem bounded_atoms atom |> not) term
+        in
+        build (Ir.Eia.sum term) c |> Ir.eia
+      end
+      | ir -> ir)
+  in
+  Ir.map (fun ir ->
+    let bounds = infer_bounds ir in
+    apply_bounds bounds ir)
+;;
+
 let simpl_ir ir =
   let simpl_negation =
     Ir.map (function
@@ -118,7 +197,7 @@ let simpl_ir ir =
       | ir -> ir)
   in
   let rec simpl ir =
-    let ir' = ir |> simpl_ops |> simpl_negation |> quantifiers_closer in
+    let ir' = ir |> simpl_ops |> simpl_negation |> quantifiers_closer |> algebraic in
     Debug.printf "Simplify step: %a\n" Ir.pp ir';
     if Ir.equal ir' ir then ir' else simpl ir'
   in
