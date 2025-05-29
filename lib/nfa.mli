@@ -25,6 +25,7 @@ val create_dfa
   -> deg:int
   -> t
 
+val length : t -> int
 val run : t -> bool
 val any_path : t -> int list -> (int list * int) option
 val intersect : t -> t -> t

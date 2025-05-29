@@ -2,3 +2,4 @@ profile = janestreet
 version = 0.27.0
 match-indent = 2
 match-indent-nested = always
+exp-grouping = preserve

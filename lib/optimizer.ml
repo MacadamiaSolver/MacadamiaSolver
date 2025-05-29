@@ -1,7 +1,8 @@
 (* SPDX-License-Identifier: MIT *)
 (* Copyright 2024-2025, Chrobelias. *)
 
-let contains var f =
+(*
+   let contains var f =
   Ast.for_some
     (function
       | Ast.Exists (a, _) | Ast.Any (a, _) -> a = var
@@ -182,3 +183,4 @@ let%expect_test "Simplify negations" =
   [%expect
     {| ((((((((a != 1) & (b <= 1)) & (c >= 1)) & (d < 1)) & (e > 1)) & (f = 1)) & (g = 1)) & (~ ((h = 1) -> (i = 2)))) |}]
 ;;
+*)

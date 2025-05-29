@@ -1,0 +1,3 @@
+[submodule "vendor/smtml"]
+	path = vendor/smtml
+	url = https://github.com/georgiy-belyanin/smtml.git

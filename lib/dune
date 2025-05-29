@@ -1,17 +1,7 @@
 (library
  (name lib)
- (modules
-  Ast
-  Optimizer
-  Parser
-  Nfa
-  NfaCollection
-  Regex
-  Smtlib
-  Solver
-  Utils
-  Debug)
- (libraries base angstrom bitv unix)
+ (modules Optimizer Nfa NfaCollection Ir Regex Solver Debug)
+ (libraries base angstrom bitv smtml unix)
  (inline_tests)
  (preprocess
   (pps
