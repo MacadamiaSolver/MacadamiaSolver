@@ -47,7 +47,7 @@ module Conv = struct
         match expr |> _to_ir with
         | `Symbol symbol -> symbol, []
         | `Eia (Ir.Eia.Sum term, c, assertions) ->
-          let varname = Random.bits () |> Int.to_string in
+          let varname = String.concat "" [ "[I"; Random.bits () |> Int.to_string; "]" ] in
           let var = Ir.var varname in
           let term = Map.add_exn ~key:var ~data:(-1) term in
           let eia_formula = Ir.Eia.eq (Ir.Eia.sum term) (-c) in
@@ -61,7 +61,7 @@ module Conv = struct
         match expr |> _to_ir with
         | `Symbol symbol -> symbol, []
         | `Eia (Ir.Eia.Sum term, c, assertions) ->
-          let varname = Random.int Int.max_int |> Int.to_string in
+          let varname = String.concat "" [ "[I"; Random.bits () |> Int.to_string; "]" ] in
           let var = Ir.var varname in
           let term = Map.add_exn ~key:var ~data:(-1) term in
           let eia_formula = Ir.Eia.eq (Ir.Eia.sum term) (-c) in
