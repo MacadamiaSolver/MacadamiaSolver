@@ -263,8 +263,26 @@ let eval ir =
   let rec eval = function
     | Ir.True -> NfaCollection.n ()
     | Ir.Lnot ir -> eval ir |> Nfa.invert
-    | Ir.Land (hd :: tl) ->
+    (*
+       | Ir.Land (hd :: tl) ->
       List.fold_left (fun nfa ir -> eval ir |> Nfa.intersect nfa) (eval hd) tl
+    *)
+    | Ir.Land irs ->
+      let nfas =
+        List.map eval irs
+        |> List.sort (fun nfa1 nfa2 -> Nfa.length nfa1 - Nfa.length nfa2)
+      in
+      let rec eval_and = function
+        | hd :: [] -> hd
+        | hd :: hd' :: tl ->
+          let nfas =
+            Nfa.intersect hd hd' :: tl
+            |> List.sort (fun nfa1 nfa2 -> Nfa.length nfa1 - Nfa.length nfa2)
+          in
+          eval_and nfas
+        | [] -> failwith ""
+      in
+      eval_and nfas
     | Ir.Lor (hd :: tl) ->
       List.fold_left (fun nfa ir -> eval ir |> Nfa.unite nfa) (eval hd) tl
     | Ir.Eia eia_ir -> Eia.eval vars eia_ir
