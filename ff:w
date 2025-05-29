@@ -49,85 +49,6 @@ let collect_free ir =
     ir
 ;;
 
-type bound = EqConst of Ir.atom * int
-
-let algebraic =
-  let rec infer_bounds = function
-    | Ir.Land irs ->
-      let bounds = List.map infer_bounds irs in
-      Set.union_list bounds
-    | Ir.Lor irs ->
-      let bounds = List.map infer_bounds irs in
-      begin
-        match bounds with
-        | hd :: tl -> List.fold_left Set.inter hd tl
-        | _ -> Set.empty
-      end
-    | True -> Set.empty
-    | Eia eia -> begin
-      match eia with
-      | Ir.Eia.Eq (Ir.Eia.Sum term, c)
-        when Map.length term = 1 && Map.nth_exn term 0 |> snd = 1 && c < 256 ->
-        let bound = EqConst (Map.nth_exn term 0 |> fst, c) in
-        Set.singleton bound
-      | _ -> Set.empty
-    end
-    | Bv _ -> Set.empty
-    | Ir.Lnot _ -> Set.empty
-    | Exists _ -> Set.empty
-    | Pred _ -> Set.empty
-  in
-  let apply_bounds bounds =
-    Ir.map (function
-      | Ir.Eia (Ir.Eia.Eq (Ir.Eia.Sum term, c) as eia)
-      | Ir.Eia (Ir.Eia.Leq (Ir.Eia.Sum term, c) as eia)
-        when Map.length term <> 1 -> begin
-        let atoms = Map.keys term in
-        let bounded_atoms =
-          List.filter_map
-            (fun atom ->
-               let atom_bound =
-                 Set.find
-                   ~f:(fun bound ->
-                     match bound with
-                     | EqConst (atom', _) when atom = atom' -> true
-                     | _ -> false)
-                   bounds
-               in
-               begin
-                 match atom_bound with
-                 | Some (EqConst (atom, c)) -> Some (atom, c)
-                 | None -> None
-               end)
-            atoms
-          |> Map.of_alist_exn
-        in
-        let build =
-          match eia with
-          | Ir.Eia.Eq _ -> Ir.Eia.eq
-          | Ir.Eia.Leq _ -> Ir.Eia.leq
-        in
-        let c =
-          Map.to_alist term
-          |> List.fold_left
-               (fun acc (atom, a) ->
-                  match Map.find bounded_atoms atom with
-                  | Some c' -> acc - (c' * a)
-                  | None -> acc)
-               c
-        in
-        let term =
-          Map.filter_keys ~f:(fun atom -> Map.mem bounded_atoms atom |> not) term
-        in
-        build (Ir.Eia.sum term) c |> Ir.eia
-      end
-      | ir -> ir)
-  in
-  Ir.map (fun ir ->
-    let bounds = infer_bounds ir in
-    apply_bounds bounds ir)
-;;
-
 let simpl_ir ir =
   let simpl_negation =
     Ir.map (function
@@ -197,7 +118,7 @@ let simpl_ir ir =
       | ir -> ir)
   in
   let rec simpl ir =
-    let ir' = ir |> simpl_ops |> simpl_negation |> quantifiers_closer |> algebraic in
+    let ir' = ir |> simpl_ops |> simpl_negation |> quantifiers_closer in
     Debug.printf "Simplify step: %a\n" Ir.pp ir';
     if Ir.equal ir' ir then ir' else simpl ir'
   in
@@ -226,114 +147,104 @@ module Eia = struct
     |> List.map (fun (a, x) -> a, Base.List.sum (module Base.Int) ~f:Fun.id x)
   ;;
 
-  let rec gcd a b =
-    if a < 0 || b < 0 then gcd (abs a) (abs b) else if b = 0 then a else gcd b (a mod b)
-  ;;
-
-  let div a b = if a mod b >= 0 then a / b else (a / b) - 1
+  let rec gcd a b = if b = 0 then a else gcd b (a mod b)
 
   let eval vars ir =
     match ir with
     | Eq (Sum term, c) | Leq (Sum term, c) ->
-      let term =
-        Map.map_keys_exn ~f:(Map.find_exn vars) term
-        |> Map.to_alist
-        |> List.filter (fun (_, v) -> v <> 0)
-      in
+      let term = Map.map_keys_exn ~f:(Map.find_exn vars) term |> Map.to_alist |> List.filter (fun (_, v) -> v <> 0) in
       let gcd = List.fold_left (fun acc (_, data) -> gcd data acc) 0 term in
-      if gcd = 0
-      then
-        if
-          match ir with
-          | Eq _ -> 0 = c
-          | Leq _ -> 0 <= c
-        then NfaCollection.Msb.n ()
-        else NfaCollection.Msb.z ()
-      else (
-        let thing = powerset term in
-        Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
-        Debug.printfln
-          "thing:[%a]"
-          (Format.pp_print_list
-             ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-             (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
-          thing;
-        let states = ref Set.empty in
-        let transitions = ref [] in
-        let rec lp front =
-          match front with
-          | [] -> ()
-          | hd :: tl ->
-            if Set.mem !states hd
-            then lp tl
-            else begin
-              let t =
-                match ir with
-                | Eq _ ->
-                  thing
-                  |> List.filter (fun (_, sum) -> (hd - sum) mod (2 * gcd) = 0)
-                  |> List.map (fun (bits, sum) -> div (hd - sum) 2, bits, hd)
-                | Leq _ ->
-                  thing
-                  |> List.map (fun (bits, sum) ->
-                    gcd * div (hd - sum) (2 * gcd), bits, hd)
-              in
-              Debug.printfln
-                "hd:%d, t:[%a]"
-                hd
-                (Format.pp_print_list
-                   ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-                   (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
-                t;
-              states := Set.add !states hd;
-              transitions := t @ !transitions;
-              lp (List.map (fun (x, _, _) -> x) t @ tl)
-            end
-        in
-        lp [ c ];
-        let states = Set.to_list !states in
-        Debug.printfln
-          "states:[%a]"
-          (Format.pp_print_list
-             ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-             (fun fmt a -> Format.fprintf fmt "%d" a))
-          states;
-        let start = List.length states in
-        let states = states |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn in
-        let idx c = Map.find states c |> Option.get in
-        let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
-        let transitions =
+      let thing = powerset term in
+      Debug.printfln "IR %a" Ir.Eia.pp_ir ir;
+      Debug.printfln
+        "thing:[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt (b, c) -> Format.fprintf fmt "(%d, %d)" b c))
+        thing;
+      let states = ref Set.empty in
+      let transitions = ref [] in
+      let rec lp front =
+        match front with
+        | [] -> ()
+        | hd :: tl ->
+          if Set.mem !states hd
+          then lp tl
+          else begin
+            let t =
+              match ir with
+              | Eq _ ->
+                thing
+                |> List.filter (fun (_, sum) -> (hd - sum) mod (2 * gcd) = 0)
+                |> List.map (fun (bits, sum) -> (hd - sum) / (2 * gcd), bits, hd)
+              | Leq _ ->
+                thing
+                |> List.map (fun (bits, sum) ->
+                  let m = (hd - sum) mod (2 * gcd) in
+                  ( (gcd
+                     *
+                     if m < 0
+                     then (hd - sum) / (2 * gcd)
+                     else ((hd - sum) / (2 * gcd)) - 1)
+                  , bits
+                  , hd ))
+            in
+            Debug.printfln
+              "hd:%d, t:[%a]"
+              hd
+              (Format.pp_print_list
+                 ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+                 (fun fmt (a, b, c) -> Format.fprintf fmt "(%d, %d, %d)" a b c))
+              t;
+            states := Set.add !states hd;
+            transitions := t @ !transitions;
+            lp (List.map (fun (x, _, _) -> x) t @ tl)
+          end
+      in
+      lp [ c ];
+      let states = Set.to_list !states in
+      Debug.printfln
+        "states:[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+           (fun fmt a -> Format.fprintf fmt "%d" a))
+        states;
+      let start = List.length states in
+      let states = states |> List.mapi (fun i x -> x, i) |> Map.of_alist_exn in
+      let idx c = Map.find states c |> Option.get in
+      let transitions = List.map (fun (a, b, c) -> idx a, b, idx c) !transitions in
+      let transitions =
+        (match ir with
+         | Eq _ ->
+           thing
+           |> List.filter_map (fun (d, sum) ->
+             match Map.find states (-sum) with
+             | None -> None
+             | Some v -> Some (start, d, v))
+         | Leq _ ->
+           thing
+           |> List.concat_map (fun (d, sum) ->
+             Map.to_alist states
+             |> List.filter_map (fun (v, idv) ->
+               if -sum <= v then Some (start, d, idv) else None)))
+        @ transitions
+      in
+      Nfa.Msb.create_nfa
+        ~transitions
+        ~start:[ start ]
+        ~final:
           (match ir with
-           | Eq _ ->
-             thing
-             |> List.filter_map (fun (d, sum) ->
-               match Map.find states (-sum) with
-               | None -> None
-               | Some v -> Some (start, d, v))
-           | Leq _ ->
-             thing
-             |> List.concat_map (fun (d, sum) ->
-               Map.to_alist states
-               |> List.filter_map (fun (v, idv) ->
-                 if -sum <= v then Some (start, d, idv) else None)))
-          @ transitions
-        in
-        Nfa.Msb.create_nfa
-          ~transitions
-          ~start:[ start ]
-          ~final:
-            (match ir with
-             | Eq _ -> [ idx c ]
-             | Leq _ -> states |> Map.filter_keys ~f:(fun x -> x <= c) |> Map.data)
-          ~vars:(List.map fst term)
-          ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
-        |> fun x ->
-        Debug.dump_nfa
-          ~msg:"Build (L)Eq Nfa: %s"
-          ~vars:(Map.to_alist vars)
-          Nfa.Msb.format_nfa
-          x;
-        x)
+           | Eq _ -> [ idx c ]
+           | Leq _ -> states |> Map.filter_keys ~f:(fun x -> x <= c) |> Map.data)
+        ~vars:(List.map fst term)
+        ~deg:(1 + List.fold_left Int.max 0 (List.map fst term))
+      |> fun x ->
+      Debug.dump_nfa
+        ~msg:"Build (L)Eq Nfa: %s"
+        ~vars:(Map.to_alist vars)
+        Nfa.Msb.format_nfa
+        x;
+      x
   ;;
 end
 
@@ -380,26 +291,8 @@ let eval ir =
   let rec eval = function
     | Ir.True -> NfaCollection.n ()
     | Ir.Lnot ir -> eval ir |> Nfa.invert
-    (*
-       | Ir.Land (hd :: tl) ->
+    | Ir.Land (hd :: tl) ->
       List.fold_left (fun nfa ir -> eval ir |> Nfa.intersect nfa) (eval hd) tl
-    *)
-    | Ir.Land irs ->
-      let nfas =
-        List.map eval irs
-        |> List.sort (fun nfa1 nfa2 -> Nfa.length nfa1 - Nfa.length nfa2)
-      in
-      let rec eval_and = function
-        | hd :: [] -> hd
-        | hd :: hd' :: tl ->
-          let nfas =
-            Nfa.intersect hd hd' :: tl
-            |> List.sort (fun nfa1 nfa2 -> Nfa.length nfa1 - Nfa.length nfa2)
-          in
-          eval_and nfas
-        | [] -> failwith ""
-      in
-      eval_and nfas
     | Ir.Lor (hd :: tl) ->
       List.fold_left (fun nfa ir -> eval ir |> Nfa.unite nfa) (eval hd) tl
     | Ir.Eia eia_ir -> Eia.eval vars eia_ir
@@ -791,11 +684,9 @@ let eval_semenov return next formula =
   |> List.to_seq
   |> Seq.map (prepare_order s nfa)
   |> Seq.filter (function order, nfa ->
-      let nfa =
-        nfa |> Nfa.MsbNat.project (order |> List.map (fun str -> Map.find_exn s.vars str))
-      in
-      Debug.dump_nfa ~msg:"Checking if solvable: %s" Nfa.MsbNat.format_nfa nfa;
-      nfa |> Nfa.MsbNat.run)
+      nfa
+      |> Nfa.MsbNat.project (order |> List.map (fun str -> Map.find_exn s.vars str))
+      |> Nfa.MsbNat.run)
   |> Seq.map (fun (order, nfa) -> proof_order return next s nfa order)
   |> Seq.find (function
     | Some _ -> true
